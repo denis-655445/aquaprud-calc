@@ -1,0 +1,212 @@
+/* ===== Токени: беремо кольори теми Telegram, а поза Telegram — власні запасні ===== */
+:root {
+  --fb-bg: #eef1f4;
+  --fb-card: #ffffff;
+  --fb-text: #16202a;
+  --fb-hint: #6b7682;
+  --fb-line: #dde3e9;
+  --fb-button: #2d7fd3;
+  --fb-button-text: #ffffff;
+  --fb-danger: #c8372d;
+  --water: #13707a;          /* глибока вода: схема ставка і «рекомендовано» */
+  --water-fill: rgba(19, 112, 122, 0.16);
+  --test-bg: #fff3c4;
+  --test-text: #5c4300;
+
+  --bg: var(--tg-theme-secondary-bg-color, var(--fb-bg));
+  --card: var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, var(--fb-card)));
+  --text: var(--tg-theme-text-color, var(--fb-text));
+  --hint: var(--tg-theme-hint-color, var(--fb-hint));
+  --line: var(--tg-theme-section-separator-color, var(--fb-line));
+  --button: var(--tg-theme-button-color, var(--fb-button));
+  --button-text: var(--tg-theme-button-text-color, var(--fb-button-text));
+  --danger: var(--tg-theme-destructive-text-color, var(--fb-danger));
+
+  --radius: 12px;
+  --gap: 12px;
+}
+
+/* Темна тема поза Telegram (у Telegram кольори приходять із його теми) */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fb-bg: #0f1418;
+    --fb-card: #1a2127;
+    --fb-text: #e8edf1;
+    --fb-hint: #8d99a4;
+    --fb-line: #2a333b;
+    --water: #5cc0c9;
+    --water-fill: rgba(92, 192, 201, 0.18);
+    --test-bg: #3a3212;
+    --test-text: #f3dc8a;
+  }
+}
+/* Темна тема в Telegram: клас ставить app.js за Telegram.WebApp.colorScheme */
+html.tg-dark { --water: #5cc0c9; --water-fill: rgba(92, 192, 201, 0.18); --test-bg: #3a3212; --test-text: #f3dc8a; }
+
+/* ===== База ===== */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  padding: 0 12px calc(96px + env(safe-area-inset-bottom)); /* місце під нижню панель */
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--button); outline-offset: 2px; }
+[hidden] { display: none !important; }
+
+/* ===== Заголовок ===== */
+.head { padding: 16px 4px 10px; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.head__title { margin: 0; font-size: 22px; line-height: 1.2; font-weight: 700; letter-spacing: -0.01em; }
+.head__sub { margin: 2px 0 0; color: var(--hint); font-size: 13px; }
+
+/* ===== Банери ===== */
+.banner { margin: 0 0 var(--gap); padding: 10px 12px; border-radius: var(--radius); font-size: 14px; }
+.banner--test { background: var(--test-bg); color: var(--test-text); }
+.banner--error { background: var(--card); color: var(--danger); border: 1px solid var(--danger); }
+
+/* ===== Блоки ===== */
+.block { background: var(--card); border-radius: var(--radius); padding: 14px; margin-bottom: var(--gap); }
+.block__title { margin: 0 0 12px; font-size: 17px; font-weight: 600; }
+
+/* ===== Поля ===== */
+.field { display: block; margin-bottom: 10px; min-width: 0; }
+.field__label { display: block; margin-bottom: 4px; color: var(--hint); font-size: 13px; }
+.input {
+  width: 100%;
+  min-height: 44px;              /* зручна ціль для пальця */
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  font-size: 17px;               /* ≥16px: iOS не збільшує масштаб при фокусі */
+  appearance: none;
+  -webkit-appearance: none;
+}
+select.input {
+  padding-right: 34px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--hint) 50%), linear-gradient(135deg, var(--hint) 50%, transparent 50%);
+  background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+.input--area { min-height: 76px; resize: vertical; }
+.input.is-auto { font-weight: 600; } /* рекомендований вибір — жирним (§6.4) */
+.grid2, .grid3 { display: grid; gap: 10px; }
+.grid2 { grid-template-columns: 1fr 1fr; }
+.grid3 { grid-template-columns: 1fr 1fr 1fr; }
+.grid3 .input { text-align: center; font-size: 20px; font-variant-numeric: tabular-nums; }
+
+/* ===== Сегментовані перемикачі ===== */
+.seg { display: flex; gap: 4px; padding: 3px; margin-bottom: 12px; border-radius: 10px; background: var(--bg); }
+.seg__btn {
+  flex: 1; min-height: 38px; padding: 6px 4px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--hint); font-size: 14px; cursor: pointer;
+}
+.seg__btn[aria-pressed="true"] { background: var(--card); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
+
+/* ===== Схема ставка ===== */
+.sketch { display: block; width: 100%; height: auto; margin: 0 0 12px; }
+.sk-water { fill: var(--water-fill); stroke: var(--water); stroke-width: 2; }
+.sk-water--custom { stroke-dasharray: 6 4; }
+.sk-bio { fill: none; stroke: var(--water); stroke-width: 1.5; stroke-dasharray: 3 3; }
+.sk-label { fill: var(--hint); font-size: 12px; font-variant-numeric: tabular-nums; }
+.sk-label--in { fill: var(--water); }
+.sk-hint { fill: var(--hint); font-size: 13px; }
+
+/* ===== Перемикач ===== */
+.switch { display: flex; align-items: center; gap: 10px; min-height: 44px; margin-bottom: 8px; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch__track { position: relative; flex: none; width: 46px; height: 28px; border-radius: 14px; background: var(--line); transition: background 0.2s; }
+.switch__track::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); transition: transform 0.2s;
+}
+.switch input:checked + .switch__track { background: var(--water); }
+.switch input:checked + .switch__track::after { transform: translateX(18px); }
+.switch input:focus-visible + .switch__track { outline: 2px solid var(--button); outline-offset: 2px; }
+
+/* ===== Показники ставка ===== */
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 4px 0 0; }
+.stats div { padding: 8px; border-radius: 10px; background: var(--bg); }
+.stats dt { color: var(--hint); font-size: 12px; }
+.stats dd { margin: 0; font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* ===== Обладнання ===== */
+.need { margin: -4px 0 12px; color: var(--hint); font-size: 14px; }
+.need strong { color: var(--text); font-variant-numeric: tabular-nums; }
+.pick { margin-bottom: 6px; }
+.pick .field { margin-bottom: 4px; }
+.pick__note { display: flex; align-items: center; gap: 8px; min-height: 22px; margin-bottom: 8px; font-size: 13px; color: var(--hint); }
+.pick__note .rec { color: var(--water); font-weight: 600; }
+.pick__note .warn { color: var(--danger); }
+.linkbtn { padding: 2px 0; border: 0; background: none; color: var(--button); font-size: 13px; cursor: pointer; }
+
+/* ===== Лічильники ===== */
+.counter { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.counter__label { flex: 1; }
+.counter__btn {
+  width: 44px; height: 40px; border: 0; border-radius: 10px;
+  background: var(--bg); color: var(--button); font-size: 22px; line-height: 1; cursor: pointer;
+}
+.counter__btn:active { opacity: 0.6; }
+.counter__value { min-width: 36px; text-align: center; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.counter.is-auto .counter__value { color: var(--water); }
+.grid-light { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
+.grid-light .field { margin-bottom: 10px; }
+.counter--compact { margin-bottom: 10px; }
+
+/* ===== Додаткові позиції ===== */
+.checks label { display: flex; align-items: center; gap: 10px; min-height: 40px; cursor: pointer; }
+.checks input { width: 20px; height: 20px; accent-color: var(--water); }
+
+/* ===== Кошторис ===== */
+.hint { margin: 0; color: var(--hint); }
+.warnings { margin: 0 0 10px; padding: 0; list-style: none; }
+.warnings li { margin-bottom: 6px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--danger); color: var(--danger); font-size: 14px; }
+.group { margin-bottom: 12px; }
+.group__head { display: flex; justify-content: space-between; margin-bottom: 4px; font-weight: 600; }
+.line { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.line__name { min-width: 0; }
+.line__calc { display: block; color: var(--hint); font-size: 13px; font-variant-numeric: tabular-nums; }
+.line__sum { flex: none; font-variant-numeric: tabular-nums; }
+.totals { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; margin: 8px 0 0; padding-top: 10px; border-top: 2px solid var(--line); }
+.totals dt { color: var(--hint); }
+.totals dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.totals .grand { color: var(--text); font-size: 17px; font-weight: 700; }
+
+/* ===== Кнопки ===== */
+.btn { display: block; width: 100%; min-height: 48px; padding: 12px 16px; border: 0; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; }
+.btn:active { opacity: 0.75; }
+.btn--primary { background: var(--button); color: var(--button-text); }
+.btn--secondary { background: var(--card); color: var(--button); }
+.btn--ghost { background: transparent; color: var(--danger); font-weight: 500; }
+.actions { display: grid; gap: 8px; margin-bottom: 8px; }
+.footer { margin: 8px 4px 16px; color: var(--hint); font-size: 12px; }
+
+/* ===== Нижня панель з підсумком ===== */
+.totalbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  background: var(--card); border-top: 1px solid var(--line);
+}
+.totalbar__sum { flex: 1; min-width: 0; }
+.totalbar__label { display: block; color: var(--hint); font-size: 12px; }
+.totalbar__value { display: block; font-size: 22px; line-height: 1.15; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.totalbar .btn { width: auto; flex: none; }
+
+/* ===== Службова панель ===== */
+.sheet { position: fixed; inset: 0; z-index: 20; display: flex; align-items: flex-end; background: rgba(0, 0, 0, 0.4); }
+.sheet__card {
+  width: 100%; padding: 18px 16px calc(16px + env(safe-area-inset-bottom));
+  border-radius: 16px 16px 0 0; background: var(--card);
+}
+.sheet__card .btn { margin-top: 12px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .switch__track, .switch__track::after { transition: none; }
+}

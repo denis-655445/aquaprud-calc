@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="format-detection" content="telephone=no">
+  <title>AquaPrud — кошторис ставка</title>
+  <!-- SDK Telegram Mini Apps: дає Telegram.WebApp (тема, кнопки, вібровідгук) -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <!-- ?v=N — версія файлу: змінюємо при кожному оновленні, бо Telegram кешує Mini App -->
+  <link rel="stylesheet" href="css/style.css?v=1">
+</head>
+<body>
+  <header class="head">
+    <h1 id="appTitle" class="head__title">Кошторис ставка</h1>
+    <p class="head__sub">AquaPrud</p>
+  </header>
+
+  <div id="testBanner" class="banner banner--test" hidden>
+    Тестовий каталог: ціни й норми вигадані для перевірки. Такий кошторис клієнту не надсилайте.
+  </div>
+  <div id="loadError" class="banner banner--error" hidden></div>
+
+  <main id="app" hidden>
+    <!-- Блок 1: параметри ставка -->
+    <section class="block" aria-labelledby="h-pond">
+      <h2 id="h-pond" class="block__title">Ставок</h2>
+
+      <div class="seg" role="group" aria-label="Форма ставка">
+        <button type="button" class="seg__btn" data-shape="rect">Прямокутний</button>
+        <button type="button" class="seg__btn" data-shape="oval">Овальний</button>
+        <button type="button" class="seg__btn" data-shape="custom">Нестандартний</button>
+      </div>
+
+      <svg id="sketch" class="sketch" viewBox="0 0 320 150" role="img" aria-label="Схема ставка, вид зверху"></svg>
+
+      <div class="grid3">
+        <label class="field"><span class="field__label">Довжина, м</span>
+          <input id="L" class="input" inputmode="decimal" autocomplete="off" placeholder="0"></label>
+        <label class="field"><span class="field__label">Ширина, м</span>
+          <input id="W" class="input" inputmode="decimal" autocomplete="off" placeholder="0"></label>
+        <label class="field"><span class="field__label">Глибина, м</span>
+          <input id="D" class="input" inputmode="decimal" autocomplete="off" placeholder="0"></label>
+      </div>
+
+      <div class="seg" role="group" aria-label="Риба">
+        <button type="button" class="seg__btn" data-fish="0">Без риби</button>
+        <button type="button" class="seg__btn" data-fish="1">З рибою</button>
+      </div>
+
+      <label class="switch">
+        <input id="bio" type="checkbox">
+        <span class="switch__track" aria-hidden="true"></span>
+        <span>Біоплато</span>
+      </label>
+      <div id="bioFields" class="grid2" hidden>
+        <label class="field"><span class="field__label">Довжина біоплато, м</span>
+          <input id="Lb" class="input" inputmode="decimal" autocomplete="off" placeholder="0"></label>
+        <label class="field"><span class="field__label">Ширина біоплато, м</span>
+          <input id="Wb" class="input" inputmode="decimal" autocomplete="off" placeholder="0"></label>
+      </div>
+
+      <label class="field"><span class="field__label">Плівка</span>
+        <select id="filmId" class="input"></select></label>
+
+      <div class="grid2">
+        <label class="field"><span class="field__label">До фільтра, м</span>
+          <input id="distance" class="input" inputmode="decimal" autocomplete="off" placeholder="0"></label>
+        <label class="field"><span class="field__label">Висота підйому, м</span>
+          <input id="lift" class="input" inputmode="decimal" autocomplete="off"></label>
+      </div>
+
+      <dl id="stats" class="stats" hidden></dl>
+    </section>
+
+    <!-- Блок 2: обладнання з автопідбором -->
+    <section class="block" aria-labelledby="h-equip">
+      <h2 id="h-equip" class="block__title">Обладнання</h2>
+      <p id="needInfo" class="need"></p>
+
+      <div class="pick" data-key="filterId">
+        <label class="field"><span class="field__label">Фільтр</span>
+          <select id="filterId" class="input"></select></label>
+        <div class="pick__note"></div>
+      </div>
+      <div class="pick" data-key="pumpId">
+        <label class="field"><span class="field__label">Насос</span>
+          <select id="pumpId" class="input"></select></label>
+        <div class="pick__note"></div>
+      </div>
+      <div class="pick" data-key="uvId">
+        <label class="field"><span class="field__label">УФ-стерилізатор</span>
+          <select id="uvId" class="input"></select></label>
+        <div class="pick__note"></div>
+      </div>
+
+      <div class="pick" data-key="skimmers">
+        <div class="counter">
+          <span class="counter__label">Скіммери</span>
+          <button type="button" class="counter__btn" data-step="skimmers" data-d="-1" aria-label="Менше скіммерів">−</button>
+          <output id="skimmers" class="counter__value">0</output>
+          <button type="button" class="counter__btn" data-step="skimmers" data-d="1" aria-label="Більше скіммерів">+</button>
+        </div>
+        <div class="pick__note"></div>
+      </div>
+      <div class="pick" data-key="drains">
+        <div class="counter">
+          <span class="counter__label">Донні зливи</span>
+          <button type="button" class="counter__btn" data-step="drains" data-d="-1" aria-label="Менше донних зливів">−</button>
+          <output id="drains" class="counter__value">0</output>
+          <button type="button" class="counter__btn" data-step="drains" data-d="1" aria-label="Більше донних зливів">+</button>
+        </div>
+        <div class="pick__note"></div>
+      </div>
+    </section>
+
+    <!-- Блок 3: декор -->
+    <section class="block" aria-labelledby="h-decor">
+      <h2 id="h-decor" class="block__title">Декор</h2>
+      <label class="field"><span class="field__label">Водоспад</span>
+        <select id="waterfallId" class="input"></select></label>
+      <div class="grid-light">
+        <label class="field"><span class="field__label">Підсвітка</span>
+          <select id="lightId" class="input"></select></label>
+        <div class="counter counter--compact">
+          <button type="button" class="counter__btn" data-step="lights" data-d="-1" aria-label="Менше світильників">−</button>
+          <output id="lights" class="counter__value">0</output>
+          <button type="button" class="counter__btn" data-step="lights" data-d="1" aria-label="Більше світильників">+</button>
+        </div>
+      </div>
+      <div id="extras" class="checks"></div>
+    </section>
+
+    <!-- Результат -->
+    <section class="block" aria-labelledby="h-est">
+      <h2 id="h-est" class="block__title">Кошторис</h2>
+      <p id="emptyHint" class="hint">Введіть довжину, ширину й глибину ставка — кошторис з'явиться тут.</p>
+      <ul id="warnings" class="warnings"></ul>
+      <div id="lines"></div>
+      <dl id="totals" class="totals"></dl>
+    </section>
+
+    <!-- Дані клієнта -->
+    <section class="block" aria-labelledby="h-client">
+      <h2 id="h-client" class="block__title">Клієнт</h2>
+      <label class="field"><span class="field__label">Ім'я</span>
+        <input id="clientName" class="input" autocomplete="off"></label>
+      <label class="field"><span class="field__label">Телефон</span>
+        <input id="clientPhone" class="input" type="tel" autocomplete="off"></label>
+      <label class="field"><span class="field__label">Адреса об'єкта</span>
+        <input id="clientAddress" class="input" autocomplete="off"></label>
+      <label class="field"><span class="field__label">Коментар</span>
+        <textarea id="comment" class="input input--area" rows="3"></textarea></label>
+    </section>
+
+    <div class="actions">
+      <button id="btnShare" type="button" class="btn btn--secondary">Надіслати в Telegram</button>
+      <button id="btnReset" type="button" class="btn btn--ghost">Новий кошторис</button>
+    </div>
+    <p id="footer" class="footer"></p>
+  </main>
+
+  <!-- Нижня панель: підсумок завжди під пальцем -->
+  <div id="totalBar" class="totalbar" hidden>
+    <div class="totalbar__sum">
+      <span id="totalLabel" class="totalbar__label">Разом</span>
+      <strong id="totalValue" class="totalbar__value">—</strong>
+    </div>
+    <button id="btnCopy" type="button" class="btn btn--primary">Копіювати кошторис</button>
+  </div>
+
+  <!-- Службова панель: відкривається з меню «⋮ → Налаштування» або довгим натисканням на заголовок -->
+  <div id="service" class="sheet" hidden>
+    <div class="sheet__card" role="dialog" aria-modal="true" aria-labelledby="h-service">
+      <h2 id="h-service" class="block__title">Службові налаштування</h2>
+      <div class="counter">
+        <span id="laborLabel" class="counter__label">Роботи, %</span>
+        <button type="button" class="counter__btn" data-svc="labor_pct" data-d="-10" aria-label="Мінус 10%">−</button>
+        <output id="laborPct" class="counter__value">100</output>
+        <button type="button" class="counter__btn" data-svc="labor_pct" data-d="10" aria-label="Плюс 10%">+</button>
+      </div>
+      <div class="counter">
+        <span class="counter__label">Націнка / знижка, %</span>
+        <button type="button" class="counter__btn" data-svc="markup_pct" data-d="-5" aria-label="Мінус 5%">−</button>
+        <output id="markupPct" class="counter__value">0</output>
+        <button type="button" class="counter__btn" data-svc="markup_pct" data-d="5" aria-label="Плюс 5%">+</button>
+      </div>
+      <label class="switch">
+        <input id="hidePrices" type="checkbox">
+        <span class="switch__track" aria-hidden="true"></span>
+        <span>Приховати ціни на екрані</span>
+      </label>
+      <button id="serviceDone" type="button" class="btn btn--primary">Готово</button>
+    </div>
+  </div>
+
+  <!-- Порядок важливий: конфіг → дані → ядро → API → інтерфейс → запуск -->
+  <script src="js/config.js?v=1"></script>
+  <script src="../data/catalog.sample.js?v=1"></script>
+  <script src="../core/calc.js?v=1"></script>
+  <script src="../core/format.js?v=1"></script>
+  <script src="js/api.js?v=1"></script>
+  <script src="js/ui.js?v=1"></script>
+  <script src="js/app.js?v=1"></script>
+</body>
+</html>

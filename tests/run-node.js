@@ -1,0 +1,12 @@
+// tests/run-node.js — запуск тих самих тестів у Node.js: node tests/run-node.js
+var Calc = require('../core/calc.js');
+var Format = require('../core/format.js');
+var CalcTests = require('./calc.tests.js');
+
+var results = CalcTests.run(Calc, Format);
+results.forEach(function (r) {
+  console.log((r.ok ? 'OK   ' : 'FAIL ') + r.name + (r.error ? ' — ' + r.error : ''));
+});
+var failed = results.filter(function (r) { return !r.ok; }).length;
+console.log('\n' + (results.length - failed) + ' з ' + results.length + ' тестів пройдено');
+process.exit(failed ? 1 : 0); // ненульовий код — сигнал про помилку (знадобиться для автоматичних перевірок)
