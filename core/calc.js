@@ -1,5 +1,5 @@
 /*
- * core/calc.js — ядро розрахунку кошторису AquaPrud.
+ * core/calc.js — ядро розрахунку кошторису Aquaprud.
  * Чисті функції: без DOM, без API Telegram і Google.
  * Однаково працює в браузері, Google Apps Script і Node.js (project_status.md §12).
  */
@@ -310,7 +310,7 @@ var Calc = (function () {
     if (labor > 0) {
       lines.push({
         id: 'LABOR',
-        name: 'Монтажні роботи (' + laborPct + '% від ' + (withEquipment ? 'матеріалів і обладнання' : 'матеріалів') + ')',
+        name: 'Монтажні роботи', // без відсотка: назву бачить клієнт (відсоток — у службовій панелі)
         unit: 'посл.', qty: 1, price: labor, sum: labor, group: 'Роботи',
         base: money(laborBase) // сума, від якої рахується відсоток
       });

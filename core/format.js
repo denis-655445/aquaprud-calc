@@ -35,12 +35,32 @@ var Format = (function () {
     return pad2(d.getDate()) + '.' + pad2(d.getMonth() + 1) + '.' + d.getFullYear();
   }
 
+  /*
+   * Телефон України. Зберігаємо лише 9 цифр після +380 («місцеві» цифри).
+   * Приклади: «+380 67 123 45 67», «0671234567», «380671234567» → «671234567».
+   */
+  function phoneLocal(raw) {
+    var d = String(raw || '').replace(/\D/g, '');   // лише цифри
+    if (d.indexOf('380') === 0) d = d.slice(3);      // прибираємо код країни
+    d = d.replace(/^0+/, '');                        // звичний «0» перед кодом оператора
+    return d.slice(0, 9);                            // більше 9 цифр ввести неможливо
+  }
+
+  // Відформатований номер: +380 67 123 45 67 (частково введений — теж форматуємо)
+  function phoneUA(raw) {
+    var d = phoneLocal(raw);
+    if (!d) return '';
+    var groups = [d.slice(0, 2), d.slice(2, 5), d.slice(5, 7), d.slice(7, 9)];
+    return '+380 ' + groups.filter(function (g) { return g; }).join(' ');
+  }
+
   var SHAPE_NAMES = { rect: 'прямокутний', oval: 'овальний', custom: 'нестандартної форми' };
 
   /*
    * Текст кошторису для копіювання в чат.
    * est — результат Calc.buildEstimate; inp — параметри ставка;
-   * extra — { client, comment, currency, isTest, date }
+   * extra — { client, currency, isTest, date }. Коментар сюди НЕ передаємо:
+   * він лише для майстра (піде в CRM на етапі A4), клієнт його не бачить.
    */
   function estimateText(est, inp, extra) {
     var e = extra || {};
@@ -49,11 +69,12 @@ var Format = (function () {
     var out = [];
 
     if (e.isTest) out.push('⚠️ ТЕСТОВІ ЦІНИ — не для клієнта', '');
-    out.push('Кошторис AquaPrud від ' + date(e.date || new Date()));
+    out.push('Кошторис Aquaprud від ' + date(e.date || new Date()));
 
     // Дані клієнта — лише заповнені поля
     var c = e.client || {};
-    var clientParts = [c.name, c.phone, c.address].filter(function (v) { return v && String(v).trim(); });
+    var phone = phoneLocal(c.phone).length === 9 ? phoneUA(c.phone) : ''; // неповний номер не пишемо
+    var clientParts = [c.name, phone, c.address].filter(function (v) { return v && String(v).trim(); });
     if (clientParts.length) out.push('Клієнт: ' + clientParts.join(', '));
 
     out.push('');
@@ -62,9 +83,22 @@ var Format = (function () {
     out.push('Площа дзеркала ' + qty(m.S) + ' м², об\'єм води ' + qty(m.Vtotal) + ' м³');
     if (m.hasBio) out.push('Біоплато: ' + qty(m.Lb) + ' × ' + qty(m.Wb) + ' м');
 
+    // Націнку клієнту окремо не показуємо: додаємо її до «Монтажних робіт», щоб суми сходилися.
+    // Знижку (від'ємна націнка) показуємо окремим рядком — це клієнту приємно бачити.
+    var t = est.totals;
+    var hiddenMarkup = t.markup > 0 ? t.markup : 0;
+    var lines = est.lines.map(function (l) {
+      if (l.id !== 'LABOR' || !hiddenMarkup) return l;
+      return { id: l.id, name: l.name, unit: l.unit, qty: l.qty, price: l.sum + hiddenMarkup, sum: l.sum + hiddenMarkup, group: l.group };
+    });
+    var hasLabor = lines.some(function (l) { return l.id === 'LABOR'; });
+    if (hiddenMarkup && !hasLabor) {
+      lines.push({ id: 'LABOR', name: 'Монтажні роботи', unit: 'посл.', qty: 1, price: hiddenMarkup, sum: hiddenMarkup, group: 'Роботи' });
+    }
+
     // Рядки за групами
     ['Обладнання', 'Матеріали', 'Роботи'].forEach(function (group) {
-      var rows = est.lines.filter(function (l) { return l.group === group; });
+      var rows = lines.filter(function (l) { return l.group === group; });
       if (!rows.length) return;
       out.push('', group + ':');
       rows.forEach(function (l) {
@@ -75,19 +109,20 @@ var Format = (function () {
       });
     });
 
-    var t = est.totals;
     out.push('');
     out.push('Обладнання: ' + money(t.equipment, cur));
     out.push('Матеріали: ' + money(t.materials, cur));
-    out.push('Роботи: ' + money(t.work, cur));
-    if (t.markup !== 0) out.push((t.markup > 0 ? 'Націнка ' : 'Знижка ') + number(Math.abs(t.markup_pct), 1) + '%: ' + money(t.markup, cur));
+    out.push('Роботи: ' + money(t.work + hiddenMarkup, cur));
+    if (t.markup < 0) out.push('Знижка ' + qty(Math.abs(t.markup_pct)) + '%: ' + money(t.markup, cur));
     out.push('Разом: ' + money(t.total, cur));
 
-    if (e.comment && String(e.comment).trim()) out.push('', 'Коментар: ' + String(e.comment).trim());
     return out.join('\n');
   }
 
-  return { number: number, qty: qty, money: money, date: date, estimateText: estimateText, NBSP: NBSP };
+  return {
+    number: number, qty: qty, money: money, date: date,
+    phoneLocal: phoneLocal, phoneUA: phoneUA, estimateText: estimateText, NBSP: NBSP
+  };
 })();
 
 // Експорт для Node.js (у браузері й Apps Script рядок пропускається)

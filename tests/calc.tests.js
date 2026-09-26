@@ -90,6 +90,30 @@ var CalcTests = (function () {
         var t = Calc.buildEstimate(POND, SEL, f, {}).totals;
         return t.labor === 1770 && t.total === 3540;
       }],
+      ['Телефон: різні способи введення → 9 цифр і маска +380 67 123 45 67', function () {
+        return Format.phoneLocal('0671234567') === '671234567' &&
+          Format.phoneLocal('+38 (067) 123-45-67') === '671234567' &&
+          Format.phoneLocal('+380 67 123 45 6789') === '671234567' && // зайві цифри відкидаються
+          Format.phoneUA('671234567') === '+380 67 123 45 67' &&
+          Format.phoneUA('+380 671') === '+380 67 1';
+      }],
+      ['Текст для клієнта: без коментаря, без % робіт, неповний телефон не пишемо', function () {
+        var est = Calc.buildEstimate(POND, SEL, FIXTURE, {});
+        var txt = Format.estimateText(est, POND, { client: { name: 'Іван', phone: '+380 67 12' }, comment: 'секрет' });
+        return txt.indexOf('секрет') === -1 && txt.indexOf('%') === -1 &&
+          txt.indexOf('+380') === -1 && txt.indexOf('Монтажні роботи') !== -1;
+      }],
+      ['Націнка 10% не видна клієнту: входить у «Роботи» (235 + 201 = 436), разом 2206', function () {
+        var est = Calc.buildEstimate(POND, SEL, FIXTURE, { labor_pct: 50, markup_pct: 10 });
+        var txt = Format.estimateText(est, POND, {});
+        var n = Format.NBSP;
+        return txt.indexOf('Націнка') === -1 && txt.indexOf('Роботи: 436' + n + 'грн') !== -1 &&
+          txt.indexOf('Разом: 2' + n + '206' + n + 'грн') !== -1;
+      }],
+      ['Знижка 10% показується клієнту окремим рядком', function () {
+        var est = Calc.buildEstimate(POND, SEL, FIXTURE, { markup_pct: -10 });
+        return Format.estimateText(est, POND, {}).indexOf('Знижка 10%') !== -1;
+      }],
       ['Форматування: 1234567,5 → «1 234 567,50 грн»', function () {
         var n = Format.NBSP;
         return Format.money(1234567.5) === '1' + n + '234' + n + '567,50' + n + 'грн';

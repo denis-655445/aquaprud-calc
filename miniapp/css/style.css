@@ -45,7 +45,9 @@ html.tg-dark { --water: #5cc0c9; --water-fill: rgba(92, 192, 201, 0.18); --test-
 
 /* ===== База ===== */
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+/* 10. Без зуму: дозволяємо лише прокрутку — ні подвійного натискання, ні «щипка» */
+html { -webkit-text-size-adjust: 100%; touch-action: pan-x pan-y; }
+button, label, input, select, textarea { touch-action: manipulation; }
 body {
   margin: 0;
   padding: 0 12px calc(96px + env(safe-area-inset-bottom)); /* місце під нижню панель */
@@ -58,13 +60,16 @@ button, input, select, textarea { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--button); outline-offset: 2px; }
 [hidden] { display: none !important; }
 
+/* Планшети й широкі екрани: вміст по центру, не ширше 720 px (на телефоні — на всю ширину) */
+.head, .banner, main { max-width: 720px; margin-left: auto; margin-right: auto; }
+
 /* ===== Заголовок ===== */
 .head { padding: 16px 4px 10px; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .head__title { margin: 0; font-size: 22px; line-height: 1.2; font-weight: 700; letter-spacing: -0.01em; }
 .head__sub { margin: 2px 0 0; color: var(--hint); font-size: 13px; }
 
 /* ===== Банери ===== */
-.banner { margin: 0 0 var(--gap); padding: 10px 12px; border-radius: var(--radius); font-size: 14px; }
+.banner { margin: 0 auto var(--gap); padding: 10px 12px; border-radius: var(--radius); font-size: 14px; }
 .banner--test { background: var(--test-bg); color: var(--test-text); }
 .banner--error { background: var(--card); color: var(--danger); border: 1px solid var(--danger); }
 
@@ -94,6 +99,9 @@ select.input {
   background-repeat: no-repeat;
 }
 .input--area { min-height: 76px; resize: vertical; }
+.input.is-invalid { border-color: var(--danger); }
+.field__hint { display: block; margin-top: 4px; color: var(--danger); font-size: 13px; }
+.field__hint--muted { color: var(--hint); }
 .input.is-auto { font-weight: 600; } /* рекомендований вибір — жирним (§6.4) */
 .grid2, .grid3 { display: grid; gap: 10px; }
 .grid2 { grid-template-columns: 1fr 1fr; }
@@ -117,8 +125,10 @@ select.input {
 .sk-label--in { fill: var(--water); }
 .sk-hint { fill: var(--hint); font-size: 13px; }
 
-/* ===== Перемикач ===== */
-.switch { display: flex; align-items: center; gap: 10px; min-height: 44px; margin-bottom: 8px; cursor: pointer; }
+/* ===== Перемикач: клікабельний лише сам перемикач, підпис поруч — ні (8) ===== */
+.switch { display: flex; align-items: center; gap: 10px; min-height: 44px; margin-bottom: 8px; }
+.switch__control { position: relative; display: inline-flex; align-items: center; padding: 8px 0; cursor: pointer; }
+.switch__text { user-select: none; -webkit-user-select: none; }
 .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
 .switch__track { position: relative; flex: none; width: 46px; height: 28px; border-radius: 14px; background: var(--line); transition: background 0.2s; }
 .switch__track::after {
@@ -159,9 +169,11 @@ select.input {
 .grid-light .field { margin-bottom: 10px; }
 .counter--compact { margin-bottom: 10px; }
 
-/* ===== Додаткові позиції ===== */
-.checks label { display: flex; align-items: center; gap: 10px; min-height: 40px; cursor: pointer; }
-.checks input { width: 20px; height: 20px; accent-color: var(--water); }
+/* ===== Додаткові позиції: клікабельний лише прапорець (зона 44×44 для пальця) ===== */
+.check { display: flex; align-items: center; gap: 4px; min-height: 44px; }
+.check__control { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin-left: -11px; cursor: pointer; }
+.check__control input { width: 22px; height: 22px; margin: 0; accent-color: var(--water); }
+.check__text { user-select: none; -webkit-user-select: none; }
 
 /* ===== Кошторис ===== */
 .hint { margin: 0; color: var(--hint); }
@@ -198,11 +210,17 @@ select.input {
 .totalbar__label { display: block; color: var(--hint); font-size: 12px; }
 .totalbar__value { display: block; font-size: 22px; line-height: 1.15; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .totalbar .btn { width: auto; flex: none; }
+/* На планшеті вміст панелі — у тій самій колонці 720 px, що й решта */
+@media (min-width: 744px) {
+  .totalbar { padding-left: calc((100% - 720px) / 2); padding-right: calc((100% - 720px) / 2); }
+}
+/* 9. Під час введення панель ховаємо: над клавіатурою вона закривала поля */
+body.typing .totalbar { display: none; }
 
 /* ===== Службова панель ===== */
-.sheet { position: fixed; inset: 0; z-index: 20; display: flex; align-items: flex-end; background: rgba(0, 0, 0, 0.4); }
+.sheet { position: fixed; inset: 0; z-index: 20; display: flex; align-items: flex-end; justify-content: center; background: rgba(0, 0, 0, 0.4); }
 .sheet__card {
-  width: 100%; padding: 18px 16px calc(16px + env(safe-area-inset-bottom));
+  width: 100%; max-width: 720px; padding: 18px 16px calc(16px + env(safe-area-inset-bottom));
   border-radius: 16px 16px 0 0; background: var(--card);
 }
 .sheet__card .btn { margin-top: 12px; }

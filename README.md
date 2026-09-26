@@ -1,4 +1,4 @@
-# AquaPrud — калькулятор кошторису ставка (Telegram Mini App)
+# Aquaprud — калькулятор кошторису ставка (Telegram Mini App)
 
 Етап A2: застосунок працює на **тестовому каталозі** (`data/catalog.sample.js`), без бекенду.
 Хостинг — GitHub Pages, тому MacBook для роботи застосунку вмикати не потрібно.
@@ -31,4 +31,8 @@ BotFather → `/mybots` → `@aquaprud_bot` → **Bot Settings → Menu Button**
 
 ## Оновлення
 
-Після зміни файлів збільшуйте `?v=N` у `miniapp/index.html` (Telegram кешує застосунок).
+1. У репозиторії: **Add file → Upload files** → перетягніть вміст нової версії (ті самі папки) → **Commit changes**. Змінені файли замінюються автоматично.
+2. GitHub Pages оновлюється за 1–2 хв; браузер і Telegram можуть показувати стару версію ще до ~10 хв.
+3. Якщо в Telegram довго лишається стара версія — у BotFather змініть адресу Menu Button, додавши в кінці `?v=2` (далі `?v=3` тощо).
+
+Розробнику: після зміни файлів збільшуйте `?v=N` у `miniapp/index.html` і `CONFIG.APP_VERSION`.

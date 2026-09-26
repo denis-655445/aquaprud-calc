@@ -42,7 +42,8 @@
     tg.onEvent('themeChanged', applyTheme);
     if (tgVersion('6.2')) tg.enableClosingConfirmation(); // випадковий свайп не закриє незбережене
     if (tgVersion('7.7')) tg.disableVerticalSwipes();      // прокрутка не згортає застосунок
-    // Службова панель у меню «⋮ → Налаштування» — прихована від клієнта (D15)
+    // Пункт «Налаштування» в меню «⋮». На iOS Telegram його поки не показує — основний спосіб
+    // відкрити службову панель — довге натискання на заголовок (D15)
     if (tgVersion('7.0') && tg.SettingsButton) {
       tg.SettingsButton.show();
       tg.SettingsButton.onClick(openService);
@@ -140,7 +141,7 @@
     $('lightId').value = state.decor.lightId;
     UI.renderExtras($('extras'), Calc.activeItems(catalog, 'extra'), state.decor.extras);
     $('clientName').value = state.client.name;
-    $('clientPhone').value = state.client.phone;
+    $('clientPhone').value = Format.phoneUA(state.client.phone); // у стані — лише 9 цифр
     $('clientAddress').value = state.client.address;
     $('comment').value = state.comment;
     $('hidePrices').checked = !!service.hidePrices;
@@ -426,13 +427,16 @@
     });
 
     // Клієнт і коментар (на розрахунок не впливають — лише зберігаємо)
-    [['clientName', 'name'], ['clientPhone', 'phone'], ['clientAddress', 'address']].forEach(function (p) {
+    [['clientName', 'name'], ['clientAddress', 'address']].forEach(function (p) {
       $(p[0]).addEventListener('input', function (e) { state.client[p[1]] = e.target.value; saveDraft(); });
     });
     $('comment').addEventListener('input', function (e) { state.comment = e.target.value; saveDraft(); });
 
-    // Службова панель
-    bindLongPress($('appTitle'), openService);
+    bindPhone();
+    bindKeyboard();
+
+    // Службова панель: довге натискання на весь блок заголовка
+    bindLongPress(document.querySelector('.head'), openService);
     document.querySelectorAll('[data-svc]').forEach(function (b) {
       b.addEventListener('click', function () {
         var key = b.dataset.svc, d = Number(b.dataset.d);
@@ -457,6 +461,137 @@
     $('btnReset').addEventListener('click', onReset);
   }
 
+  // ---------- 6. Телефон за маскою +380 XX XXX XX XX ----------
+  function bindPhone() {
+    var input = $('clientPhone');
+    var PREFIX = '+380 ';
+
+    // Фокус у порожньому полі — одразу підставляємо код країни
+    input.addEventListener('focus', function () {
+      if (!input.value) input.value = PREFIX;
+    });
+
+    input.addEventListener('input', function () {
+      // Скільки цифр номера стоїть перед курсором — щоб після форматування курсор не стрибав у кінець
+      var caret = input.selectionStart === null ? input.value.length : input.selectionStart;
+      var digitsBefore = Format.phoneLocal(input.value.slice(0, caret)).length;
+
+      input.value = Format.phoneUA(input.value) || PREFIX; // зайві цифри й символи відкидаються
+
+      var pos = PREFIX.length, seen = 0;
+      while (pos < input.value.length && seen < digitsBefore) {
+        if (/\d/.test(input.value.charAt(pos))) seen++;
+        pos++;
+      }
+      input.setSelectionRange(pos, pos);
+
+      state.client.phone = Format.phoneLocal(input.value);
+      updatePhoneHint(false);
+      saveDraft();
+    });
+
+    // Виходимо з поля: порожній код прибираємо, неповний номер підсвічуємо
+    input.addEventListener('blur', function () {
+      if (!Format.phoneLocal(input.value)) input.value = '';
+      updatePhoneHint(true);
+    });
+    updatePhoneHint(true);
+  }
+
+  // Підказка «номер неповний» — лише після виходу з поля, щоб не заважати під час введення
+  function updatePhoneHint(onBlur) {
+    var n = Format.phoneLocal($('clientPhone').value).length;
+    var incomplete = n > 0 && n < 9;
+    if (!incomplete) {
+      $('phoneHint').hidden = true;
+      $('clientPhone').classList.remove('is-invalid');
+    } else if (onBlur) {
+      $('phoneHint').hidden = false;
+      $('clientPhone').classList.add('is-invalid');
+    }
+  }
+
+  // ---------- 9. Поле вводу — одразу над клавіатурою ----------
+  function bindKeyboard() {
+    var baseHeight = window.innerHeight; // висота вікна без клавіатури
+    var focused = null;
+    var timer = null;
+
+    // Текстові поля й коментар; випадні списки не чіпаємо — у них своє вікно вибору
+    function isTyping(el) {
+      return !!el && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && el.type !== 'checkbox'));
+    }
+
+    // Нижній край видимої області (над клавіатурою)
+    function visibleBottom() {
+      var vv = window.visualViewport;
+      var bottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+      // Якщо розмір вікна не змінився, клавіатуру «не видно» — вважаємо, що вона займає нижню половину
+      if (bottom > baseHeight * 0.85) bottom = baseHeight * 0.5;
+      return bottom;
+    }
+
+    // Прокручуємо так, щоб низ поля опинився на 12 px вище клавіатури
+    function keep() {
+      if (!focused) return;
+      var delta = focused.getBoundingClientRect().bottom - (visibleBottom() - 12);
+      if (Math.abs(delta) > 6) window.scrollBy({ top: delta, behavior: 'smooth' });
+    }
+
+    function schedule(ms) {
+      clearTimeout(timer);
+      timer = setTimeout(keep, ms);
+    }
+
+    document.addEventListener('focusin', function (e) {
+      if (!isTyping(e.target)) return;
+      focused = e.target;
+      document.body.classList.add('typing'); // ховаємо нижню панель: над клавіатурою вона закривала поля
+      schedule(350); // чекаємо, поки клавіатура виїде
+    });
+
+    document.addEventListener('focusout', function () {
+      // Перехід між полями: спершу focusout, потім focusin — перевіряємо з маленькою затримкою
+      setTimeout(function () {
+        if (isTyping(document.activeElement)) return;
+        focused = null;
+        document.body.classList.remove('typing');
+      }, 60);
+    });
+
+    // Цифрова клавіатура iOS не має кнопки «Готово»: ховаємо її дотиком поза полем (але не під час прокрутки)
+    var touchX = 0, touchY = 0;
+    document.addEventListener('touchstart', function (e) {
+      touchX = e.touches[0].clientX;
+      touchY = e.touches[0].clientY;
+    }, { passive: true });
+    document.addEventListener('touchend', function (e) {
+      if (!focused) return;
+      var t = e.changedTouches[0];
+      var moved = Math.abs(t.clientX - touchX) > 10 || Math.abs(t.clientY - touchY) > 10;
+      var onField = e.target.closest && e.target.closest('input, textarea, select, label');
+      if (!moved && !onField) focused.blur();
+    }, { passive: true });
+
+    // Клавіатура відкрилась / змінила висоту — вирівнюємо ще раз
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', function () { if (focused) schedule(80); });
+    }
+    window.addEventListener('resize', function () {
+      if (focused) schedule(80);
+      else baseHeight = window.innerHeight; // поворот екрана, розгортання Telegram
+    });
+  }
+
+  // ---------- 10. Без зуму ----------
+  // iOS ігнорує частину заборон з meta viewport, тому додатково блокуємо жест «щипок».
+  // Подвійне натискання вимкнене в CSS (touch-action), тож швидкі «+/−» рахуються як окремі натискання
+  function disableZoom() {
+    ['gesturestart', 'gesturechange', 'gestureend'].forEach(function (ev) {
+      document.addEventListener(ev, function (e) { e.preventDefault(); }, { passive: false });
+    });
+  }
+
   function showError(text) {
     var box = $('loadError');
     box.textContent = text;
@@ -465,6 +600,7 @@
 
   // ---------- Запуск ----------
   function init() {
+    disableZoom();
     setupTelegram();
     Api.loadCatalog().then(function (cat) {
       catalog = cat;

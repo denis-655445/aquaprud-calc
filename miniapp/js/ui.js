@@ -148,10 +148,11 @@ var UI = (function () {
       rows.forEach(function (l) {
         var row = el('div', 'line');
         var name = el('span', 'line__name', l.name);
-        var calc = l.id === 'LABOR' ? 'від суми ' + moneyFn(l.base)
+        // Для «Монтажних робіт» деталі не показуємо: клієнт може бачити екран (відсоток — у службовій панелі)
+        var calc = l.id === 'LABOR' ? ''
           : l.price > 0 ? Format.qty(l.qty) + ' ' + l.unit + ' × ' + moneyFn(l.price)
           : 'включено';
-        name.appendChild(el('span', 'line__calc', calc));
+        if (calc) name.appendChild(el('span', 'line__calc', calc));
         row.appendChild(name);
         row.appendChild(el('span', 'line__sum', l.price > 0 ? moneyFn(l.sum) : '—'));
         g.appendChild(row);
@@ -169,22 +170,26 @@ var UI = (function () {
     row('Обладнання', moneyFn(t.equipment));
     row('Матеріали', moneyFn(t.materials));
     row('Роботи', moneyFn(t.work));
-    if (t.markup !== 0) row((t.markup > 0 ? 'Націнка ' : 'Знижка ') + Format.number(Math.abs(t.markup_pct), 1) + '%', moneyFn(t.markup));
+    if (t.markup !== 0) row((t.markup > 0 ? 'Націнка ' : 'Знижка ') + Format.qty(Math.abs(t.markup_pct)) + '%', moneyFn(t.markup));
     row('Разом', moneyFn(t.total), 'grand');
   }
 
-  // Прапорці для категорії «інше» (фонтан, аератор тощо)
+  // Прапорці для категорії «інше» (фонтан, аератор тощо).
+  // Клікабельний лише сам прапорець: назва поруч не перемикає — менше випадкових натискань під час прокрутки
   function renderExtras(container, items, extras) {
     container.innerHTML = '';
     items.forEach(function (it) {
-      var label = el('label');
+      var row = el('div', 'check');
+      var label = el('label', 'check__control');
       var cb = el('input');
       cb.type = 'checkbox';
       cb.dataset.extra = it.id;
       cb.checked = (extras[it.id] || 0) > 0;
+      cb.setAttribute('aria-labelledby', 'extra-' + it.id);
       label.appendChild(cb);
-      label.appendChild(el('span', null, it.name));
-      container.appendChild(label);
+      row.appendChild(label);
+      row.appendChild(el('span', 'check__text', it.name)).id = 'extra-' + it.id;
+      container.appendChild(row);
     });
   }
 

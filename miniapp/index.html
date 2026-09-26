@@ -2,18 +2,19 @@
 <html lang="uk">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- width=device-width — адаптація під будь-який екран; maximum-scale=1 і user-scalable=no — без зуму -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="format-detection" content="telephone=no">
-  <title>AquaPrud — кошторис ставка</title>
+  <title>Aquaprud — кошторис ставка</title>
   <!-- SDK Telegram Mini Apps: дає Telegram.WebApp (тема, кнопки, вібровідгук) -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <!-- ?v=N — версія файлу: змінюємо при кожному оновленні, бо Telegram кешує Mini App -->
-  <link rel="stylesheet" href="css/style.css?v=1">
+  <link rel="stylesheet" href="css/style.css?v=2">
 </head>
 <body>
   <header class="head">
     <h1 id="appTitle" class="head__title">Кошторис ставка</h1>
-    <p class="head__sub">AquaPrud</p>
+    <p class="head__sub">Aquaprud</p>
   </header>
 
   <div id="testBanner" class="banner banner--test" hidden>
@@ -48,11 +49,13 @@
         <button type="button" class="seg__btn" data-fish="1">З рибою</button>
       </div>
 
-      <label class="switch">
-        <input id="bio" type="checkbox">
-        <span class="switch__track" aria-hidden="true"></span>
-        <span>Біоплато</span>
-      </label>
+      <div class="switch">
+        <label class="switch__control">
+          <input id="bio" type="checkbox" aria-labelledby="bioText">
+          <span class="switch__track" aria-hidden="true"></span>
+        </label>
+        <span id="bioText" class="switch__text">Біоплато</span>
+      </div>
       <div id="bioFields" class="grid2" hidden>
         <label class="field"><span class="field__label">Довжина біоплато, м</span>
           <input id="Lb" class="input" inputmode="decimal" autocomplete="off" placeholder="0"></label>
@@ -145,12 +148,15 @@
       <h2 id="h-client" class="block__title">Клієнт</h2>
       <label class="field"><span class="field__label">Ім'я</span>
         <input id="clientName" class="input" autocomplete="off"></label>
-      <label class="field"><span class="field__label">Телефон</span>
-        <input id="clientPhone" class="input" type="tel" autocomplete="off"></label>
+      <label class="field" id="phoneField"><span class="field__label">Телефон</span>
+        <input id="clientPhone" class="input" type="tel" inputmode="tel" autocomplete="off"
+          placeholder="+380 67 123 45 67" aria-describedby="phoneHint">
+        <span id="phoneHint" class="field__hint" hidden>Номер неповний: потрібно 9 цифр після +380</span></label>
       <label class="field"><span class="field__label">Адреса об'єкта</span>
         <input id="clientAddress" class="input" autocomplete="off"></label>
-      <label class="field"><span class="field__label">Коментар</span>
-        <textarea id="comment" class="input input--area" rows="3"></textarea></label>
+      <label class="field"><span class="field__label">Коментар для себе</span>
+        <textarea id="comment" class="input input--area" rows="3" aria-describedby="commentHint"></textarea>
+        <span id="commentHint" class="field__hint field__hint--muted">Клієнт його не побачить: у текст кошторису коментар не потрапляє.</span></label>
     </section>
 
     <div class="actions">
@@ -169,7 +175,7 @@
     <button id="btnCopy" type="button" class="btn btn--primary">Копіювати кошторис</button>
   </div>
 
-  <!-- Службова панель: відкривається з меню «⋮ → Налаштування» або довгим натисканням на заголовок -->
+  <!-- Службова панель: відкривається довгим натисканням на заголовок (або з меню «⋮», якщо Telegram його покаже) -->
   <div id="service" class="sheet" hidden>
     <div class="sheet__card" role="dialog" aria-modal="true" aria-labelledby="h-service">
       <h2 id="h-service" class="block__title">Службові налаштування</h2>
@@ -185,22 +191,24 @@
         <output id="markupPct" class="counter__value">0</output>
         <button type="button" class="counter__btn" data-svc="markup_pct" data-d="5" aria-label="Плюс 5%">+</button>
       </div>
-      <label class="switch">
-        <input id="hidePrices" type="checkbox">
-        <span class="switch__track" aria-hidden="true"></span>
-        <span>Приховати ціни на екрані</span>
-      </label>
+      <div class="switch">
+        <label class="switch__control">
+          <input id="hidePrices" type="checkbox" aria-labelledby="hidePricesText">
+          <span class="switch__track" aria-hidden="true"></span>
+        </label>
+        <span id="hidePricesText" class="switch__text">Приховати ціни на екрані</span>
+      </div>
       <button id="serviceDone" type="button" class="btn btn--primary">Готово</button>
     </div>
   </div>
 
   <!-- Порядок важливий: конфіг → дані → ядро → API → інтерфейс → запуск -->
-  <script src="js/config.js?v=1"></script>
-  <script src="../data/catalog.sample.js?v=1"></script>
-  <script src="../core/calc.js?v=1"></script>
-  <script src="../core/format.js?v=1"></script>
-  <script src="js/api.js?v=1"></script>
-  <script src="js/ui.js?v=1"></script>
-  <script src="js/app.js?v=1"></script>
+  <script src="js/config.js?v=2"></script>
+  <script src="../data/catalog.sample.js?v=2"></script>
+  <script src="../core/calc.js?v=2"></script>
+  <script src="../core/format.js?v=2"></script>
+  <script src="js/api.js?v=2"></script>
+  <script src="js/ui.js?v=2"></script>
+  <script src="js/app.js?v=2"></script>
 </body>
 </html>
