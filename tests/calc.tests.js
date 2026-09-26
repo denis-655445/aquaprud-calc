@@ -97,11 +97,26 @@ var CalcTests = (function () {
           Format.phoneUA('671234567') === '+380 67 123 45 67' &&
           Format.phoneUA('+380 671') === '+380 67 1';
       }],
-      ['Текст для клієнта: без коментаря, без % робіт, неповний телефон не пишемо', function () {
+      ['Польський номер: «+48 512 345 678», маска і визначення країни', function () {
+        return Format.phoneFormat('512345678', 'PL') === '+48 512 345 678' &&
+          Format.phoneFormat('+48 5123', 'PL') === '+48 512 3' &&
+          Format.phoneMask('PL') === '+48 ххх ххх ххх' && Format.phoneMask('UA') === '+380 хх ххх хх хх' &&
+          Format.phoneDetect('+48 512 345 678') === 'PL' && Format.phoneDetect('+380671234567') === 'UA' &&
+          Format.phoneDetect('067') === null;
+      }],
+      ['Текст для клієнта: коментар для клієнта є, «для себе» немає, без % робіт', function () {
         var est = Calc.buildEstimate(POND, SEL, FIXTURE, {});
-        var txt = Format.estimateText(est, POND, { client: { name: 'Іван', phone: '+380 67 12' }, comment: 'секрет' });
-        return txt.indexOf('секрет') === -1 && txt.indexOf('%') === -1 &&
-          txt.indexOf('+380') === -1 && txt.indexOf('Монтажні роботи') !== -1;
+        var txt = Format.estimateText(est, POND, {
+          client: { name: 'Іван', phone: '+380 67 12', phoneCountry: 'UA' }, // неповний номер
+          clientComment: 'Монтаж у травні', comment: 'секрет'
+        });
+        return txt.indexOf('секрет') === -1 && txt.indexOf('Коментар: Монтаж у травні') !== -1 &&
+          txt.indexOf('%') === -1 && txt.indexOf('+380') === -1 && txt.indexOf('Монтажні роботи') !== -1;
+      }],
+      ['Повний польський номер потрапляє в текст', function () {
+        var est = Calc.buildEstimate(POND, SEL, FIXTURE, {});
+        var txt = Format.estimateText(est, POND, { client: { phone: '512345678', phoneCountry: 'PL' } });
+        return txt.indexOf('+48 512 345 678') !== -1;
       }],
       ['Націнка 10% не видна клієнту: входить у «Роботи» (235 + 201 = 436), разом 2206', function () {
         var est = Calc.buildEstimate(POND, SEL, FIXTURE, { labor_pct: 50, markup_pct: 10 });

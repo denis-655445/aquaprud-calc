@@ -175,7 +175,8 @@ var UI = (function () {
   }
 
   // Прапорці для категорії «інше» (фонтан, аератор тощо).
-  // Клікабельний лише сам прапорець: назва поруч не перемикає — менше випадкових натискань під час прокрутки
+  // Натискати можна на прапорець і на саму назву, але не правіше від неї:
+  // label має ширину вмісту, решта рядка не реагує — менше випадкових натискань під час прокрутки
   function renderExtras(container, items, extras) {
     container.innerHTML = '';
     items.forEach(function (it) {
@@ -185,17 +186,23 @@ var UI = (function () {
       cb.type = 'checkbox';
       cb.dataset.extra = it.id;
       cb.checked = (extras[it.id] || 0) > 0;
-      cb.setAttribute('aria-labelledby', 'extra-' + it.id);
       label.appendChild(cb);
+      label.appendChild(el('span', 'check__text', it.name));
       row.appendChild(label);
-      row.appendChild(el('span', 'check__text', it.name)).id = 'extra-' + it.id;
       container.appendChild(row);
     });
+  }
+
+  // Плавне розкриття / згортання блоку (біоплато, коментарі).
+  // inert — приховані поля не отримують фокус і не читаються екранним диктором
+  function setCollapse(box, open) {
+    box.classList.toggle('is-open', !!open);
+    if (open) box.removeAttribute('inert'); else box.setAttribute('inert', '');
   }
 
   return {
     $: $, el: el, fillSelect: fillSelect, markSelect: markSelect, setNote: setNote,
     drawSketch: drawSketch, renderStats: renderStats, renderWarnings: renderWarnings,
-    renderLines: renderLines, renderTotals: renderTotals, renderExtras: renderExtras
+    renderLines: renderLines, renderTotals: renderTotals, renderExtras: renderExtras, setCollapse: setCollapse
   };
 })();

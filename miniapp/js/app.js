@@ -12,7 +12,9 @@
 
   var catalog = null;
   var state = defaultState();
-  var service = { labor_pct: null, markup_pct: null, hidePrices: false }; // null = значення з «Налаштувань»
+  // null = значення з «Налаштувань»; fontScale — розмір тексту (1 / 1.15 / 1.3), не скидається «Новим кошторисом»
+  var service = { labor_pct: null, markup_pct: null, hidePrices: false, fontScale: 1 };
+  var FONT_SCALES = [1, 1.15, 1.3];
   var lastEst = null;
   var saveTimer = null;
   var serviceOpenedAt = 0; // час відкриття службової панелі
@@ -26,8 +28,10 @@
       inputs: { shape: 'rect', L: '', W: '', D: '', fish: false, bio: false, Lb: '', Wb: '', filmId: '', distance: '', lift: '' },
       manual: { filterId: null, pumpId: null, uvId: null, skimmers: null, drains: null },
       decor: { waterfallId: 'none', lightId: 'none', lights: 0, extras: {} },
-      client: { name: '', phone: '', address: '' },
-      comment: ''
+      client: { name: '', phone: '', phoneCountry: 'UA', address: '' },
+      clientComment: '', // для клієнта — потрапляє в текст кошторису
+      comment: '',       // для себе — клієнт не бачить (піде в CRM на етапі A4)
+      notes: { clientComment: false, comment: false } // чи розгорнуто поле коментаря
     };
   }
 
@@ -99,6 +103,8 @@
 
   // Прайс міг змінитися: id, яких більше немає, повертаємо до авто
   function validateIds() {
+    if (state.client.phoneCountry !== 'PL') state.client.phoneCountry = 'UA';
+    if (FONT_SCALES.indexOf(Number(service.fontScale)) === -1) service.fontScale = 1;
     function exists(id) { return !!Calc.findItem(catalog, id); }
     var films = Calc.activeItems(catalog, 'film');
     if (!exists(state.inputs.filmId)) state.inputs.filmId = films.length ? films[0].id : '';
@@ -130,7 +136,7 @@
     NUM_FIELDS.forEach(function (id) { $(id).value = inp[id]; });
     $('filmId').value = inp.filmId;
     $('bio').checked = !!inp.bio;
-    $('bioFields').hidden = !inp.bio;
+    UI.setCollapse($('bioFields'), inp.bio);
     document.querySelectorAll('[data-shape]').forEach(function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.shape === inp.shape));
     });
@@ -141,10 +147,13 @@
     $('lightId').value = state.decor.lightId;
     UI.renderExtras($('extras'), Calc.activeItems(catalog, 'extra'), state.decor.extras);
     $('clientName').value = state.client.name;
-    $('clientPhone').value = Format.phoneUA(state.client.phone); // у стані — лише 9 цифр
+    syncPhone();
     $('clientAddress').value = state.client.address;
+    $('clientComment').value = state.clientComment;
     $('comment').value = state.comment;
+    syncNotes();
     $('hidePrices').checked = !!service.hidePrices;
+    applyFontScale();
   }
 
   // ---------- Розрахунок і відображення ----------
@@ -301,7 +310,7 @@
   // ---------- Дії ----------
   function estimateText() {
     return Format.estimateText(lastEst, state.inputs, {
-      client: state.client, comment: state.comment,
+      client: state.client, clientComment: state.clientComment, // коментар «для себе» не передаємо
       currency: catalog.settings.currency, isTest: !!catalog.is_test, date: new Date()
     });
   }
@@ -380,7 +389,7 @@
     });
     $('bio').addEventListener('change', function (e) {
       state.inputs.bio = e.target.checked;
-      $('bioFields').hidden = !e.target.checked;
+      UI.setCollapse($('bioFields'), e.target.checked);
       changed();
     });
 
@@ -430,7 +439,39 @@
     [['clientName', 'name'], ['clientAddress', 'address']].forEach(function (p) {
       $(p[0]).addEventListener('input', function (e) { state.client[p[1]] = e.target.value; saveDraft(); });
     });
-    $('comment').addEventListener('input', function (e) { state.comment = e.target.value; saveDraft(); });
+    ['clientComment', 'comment'].forEach(function (key) {
+      $(key).addEventListener('input', function (e) { state[key] = e.target.value; saveDraft(); });
+    });
+    // «+ Коментар…» розгортає поле й ставить у нього курсор; «Прибрати» очищає і згортає
+    document.querySelectorAll('[data-note]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var key = b.dataset.note;
+        state.notes[key] = true;
+        syncNotes();
+        saveDraft();
+        setTimeout(function () { $(key).focus(); }, 280); // після анімації розкриття
+      });
+    });
+    document.querySelectorAll('[data-note-remove]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var key = b.dataset.noteRemove;
+        state[key] = '';
+        state.notes[key] = false;
+        $(key).value = '';
+        syncNotes();
+        saveDraft();
+      });
+    });
+
+    // Розмір тексту (службова панель)
+    document.querySelectorAll('[data-font]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        service.fontScale = Number(b.dataset.font);
+        applyFontScale();
+        haptic('select');
+        saveDraft();
+      });
+    });
 
     bindPhone();
     bindKeyboard();
@@ -461,93 +502,174 @@
     $('btnReset').addEventListener('click', onReset);
   }
 
-  // ---------- 6. Телефон за маскою +380 XX XXX XX XX ----------
+  // ---------- Коментарі й розмір тексту ----------
+  // Поле коментаря розгорнуте, якщо його відкрили кнопкою або в ньому вже є текст
+  function syncNotes() {
+    [['clientComment', 'clientCommentBox'], ['comment', 'commentBox']].forEach(function (p) {
+      var key = p[0];
+      var open = state.notes[key] || !!String(state[key] || '').trim();
+      UI.setCollapse($(p[1]), open);
+      document.querySelector('[data-note="' + key + '"]').hidden = open; // кнопка «+» не потрібна, коли поле відкрите
+    });
+  }
+
+  // Розмір тексту: CSS-змінна --fs множить усі розміри шрифтів у style.css
+  function applyFontScale() {
+    document.documentElement.style.setProperty('--fs', String(service.fontScale));
+    document.querySelectorAll('[data-font]').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(Number(b.dataset.font) === Number(service.fontScale)));
+    });
+  }
+
+  // ---------- 5–6. Телефон: Україна / Польща, маска «х» ----------
+  function phoneCountry() { return state.client.phoneCountry || 'UA'; }
+
+  // Сіра маска під полем: введена частина прозора, решта — «х», тож видно, скільки цифр лишилось
+  function updateGhost() {
+    var value = $('clientPhone').value;
+    var mask = Format.phoneMask(phoneCountry());
+    $('phoneTyped').textContent = value;
+    $('phoneRest').textContent = value.length < mask.length ? mask.slice(value.length) : '';
+  }
+
+  function syncPhone() {
+    var country = phoneCountry();
+    document.querySelectorAll('[data-country]').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.country === country));
+    });
+    var input = $('clientPhone');
+    var formatted = Format.phoneFormat(state.client.phone, country);
+    // Під час введення лишаємо хоча б код країни, щоб маска не зникала
+    input.value = formatted || (document.activeElement === input ? Format.phonePrefix(country) : '');
+    updateGhost();
+    updatePhoneHint(document.activeElement !== input);
+  }
+
   function bindPhone() {
     var input = $('clientPhone');
-    var PREFIX = '+380 ';
+
+    // Перемикання країни: цифри лишаються, змінюються код і групування
+    document.querySelectorAll('[data-country]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        state.client.phoneCountry = b.dataset.country;
+        state.client.phone = Format.phoneLocal(state.client.phone, b.dataset.country);
+        haptic('select');
+        syncPhone();
+        saveDraft();
+      });
+    });
 
     // Фокус у порожньому полі — одразу підставляємо код країни
     input.addEventListener('focus', function () {
-      if (!input.value) input.value = PREFIX;
+      if (!input.value) input.value = Format.phonePrefix(phoneCountry());
+      updateGhost();
     });
 
-    input.addEventListener('input', function () {
+    // Вставлений номер (з буфера або підказки iOS) замінює поле повністю.
+    // Якщо в ньому є код іншої країни (+48… / +380…) — перемикаємо країну автоматично
+    function applyWholeNumber(text) {
+      var detected = Format.phoneDetect(text);
+      if (detected) state.client.phoneCountry = detected;
+      document.querySelectorAll('[data-country]').forEach(function (b) {
+        b.setAttribute('aria-pressed', String(b.dataset.country === phoneCountry()));
+      });
+      input.value = text;
+    }
+
+    input.addEventListener('paste', function (e) {
+      var text = (e.clipboardData || window.clipboardData).getData('text');
+      if (String(text).replace(/\D/g, '').length < 9) return; // шматок номера — вставляємо як звичайно
+      e.preventDefault();
+      applyWholeNumber(text);
+      input.dispatchEvent(new Event('input')); // далі — звичайне форматування
+    });
+
+    input.addEventListener('input', function (e) {
+      // Підказка клавіатури iOS вставляє номер одним шматком — обробляємо як вставку
+      if (e && e.data && e.data.replace(/\D/g, '').length >= 9) applyWholeNumber(e.data);
+      var country = phoneCountry();
+      var prefix = Format.phonePrefix(country);
+
       // Скільки цифр номера стоїть перед курсором — щоб після форматування курсор не стрибав у кінець
       var caret = input.selectionStart === null ? input.value.length : input.selectionStart;
-      var digitsBefore = Format.phoneLocal(input.value.slice(0, caret)).length;
+      var digitsBefore = Format.phoneLocal(input.value.slice(0, caret), country).length;
 
-      input.value = Format.phoneUA(input.value) || PREFIX; // зайві цифри й символи відкидаються
+      input.value = Format.phoneFormat(input.value, country) || prefix; // зайві цифри й символи відкидаються
 
-      var pos = PREFIX.length, seen = 0;
+      var pos = prefix.length, seen = 0;
       while (pos < input.value.length && seen < digitsBefore) {
         if (/\d/.test(input.value.charAt(pos))) seen++;
         pos++;
       }
       input.setSelectionRange(pos, pos);
 
-      state.client.phone = Format.phoneLocal(input.value);
+      state.client.phone = Format.phoneLocal(input.value, country);
+      updateGhost();
       updatePhoneHint(false);
       saveDraft();
     });
 
     // Виходимо з поля: порожній код прибираємо, неповний номер підсвічуємо
     input.addEventListener('blur', function () {
-      if (!Format.phoneLocal(input.value)) input.value = '';
+      if (!Format.phoneLocal(input.value, phoneCountry())) input.value = '';
+      updateGhost();
       updatePhoneHint(true);
     });
-    updatePhoneHint(true);
   }
 
   // Підказка «номер неповний» — лише після виходу з поля, щоб не заважати під час введення
   function updatePhoneHint(onBlur) {
-    var n = Format.phoneLocal($('clientPhone').value).length;
-    var incomplete = n > 0 && n < 9;
+    var country = phoneCountry();
+    var n = Format.phoneLocal($('clientPhone').value, country).length;
+    var incomplete = n > 0 && !Format.phoneComplete($('clientPhone').value, country);
     if (!incomplete) {
       $('phoneHint').hidden = true;
       $('clientPhone').classList.remove('is-invalid');
     } else if (onBlur) {
+      $('phoneHint').textContent = 'Номер неповний: потрібно 9 цифр після ' + Format.phonePrefix(country).trim();
       $('phoneHint').hidden = false;
       $('clientPhone').classList.add('is-invalid');
     }
   }
 
-  // ---------- 9. Поле вводу — одразу над клавіатурою ----------
+  // ---------- 7. Клавіатура ----------
+  // Прокручуємо ЛИШЕ тоді, коли поле справді сховане клавіатурою, і рівно настільки,
+  // щоб воно стало на 12 px вище неї. Поле, яке й так видно, не чіпаємо.
   function bindKeyboard() {
-    var baseHeight = window.innerHeight; // висота вікна без клавіатури
     var focused = null;
     var timer = null;
+    var userTouching = false;
 
-    // Текстові поля й коментар; випадні списки не чіпаємо — у них своє вікно вибору
+    // Текстові поля й коментарі; випадні списки не чіпаємо — у них своє вікно вибору
     function isTyping(el) {
       return !!el && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && el.type !== 'checkbox'));
     }
 
-    // Нижній край видимої області (над клавіатурою)
+    // Нижній край видимої області. Якщо розмір невідомий — повертаємо null і нічого не робимо
     function visibleBottom() {
       var vv = window.visualViewport;
-      var bottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
-      // Якщо розмір вікна не змінився, клавіатуру «не видно» — вважаємо, що вона займає нижню половину
-      if (bottom > baseHeight * 0.85) bottom = baseHeight * 0.5;
-      return bottom;
+      return vv ? vv.offsetTop + vv.height : null;
     }
 
-    // Прокручуємо так, щоб низ поля опинився на 12 px вище клавіатури
-    function keep() {
-      if (!focused) return;
-      var delta = focused.getBoundingClientRect().bottom - (visibleBottom() - 12);
-      if (Math.abs(delta) > 6) window.scrollBy({ top: delta, behavior: 'smooth' });
+    function check() {
+      if (!focused || userTouching) return;
+      var bottom = visibleBottom();
+      if (bottom === null) return;
+      var overlap = focused.getBoundingClientRect().bottom - (bottom - 12);
+      if (overlap > 0) window.scrollBy(0, overlap); // без анімації: не сперечаємось із прокруткою iOS
     }
 
+    // Перевіряємо із затримкою — після того, як iOS сам завершить свою прокрутку
     function schedule(ms) {
       clearTimeout(timer);
-      timer = setTimeout(keep, ms);
+      timer = setTimeout(check, ms);
     }
 
     document.addEventListener('focusin', function (e) {
       if (!isTyping(e.target)) return;
       focused = e.target;
       document.body.classList.add('typing'); // ховаємо нижню панель: над клавіатурою вона закривала поля
-      schedule(350); // чекаємо, поки клавіатура виїде
+      schedule(400);
     });
 
     document.addEventListener('focusout', function () {
@@ -559,28 +681,27 @@
       }, 60);
     });
 
+    // Клавіатура відкрилась або змінила висоту — перевіряємо ще раз
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', function () { if (focused) schedule(150); });
+    }
+
     // Цифрова клавіатура iOS не має кнопки «Готово»: ховаємо її дотиком поза полем (але не під час прокрутки)
     var touchX = 0, touchY = 0;
     document.addEventListener('touchstart', function (e) {
+      userTouching = true; // палець на екрані — не втручаємось у прокрутку
+      clearTimeout(timer);
       touchX = e.touches[0].clientX;
       touchY = e.touches[0].clientY;
     }, { passive: true });
     document.addEventListener('touchend', function (e) {
+      userTouching = false;
       if (!focused) return;
       var t = e.changedTouches[0];
       var moved = Math.abs(t.clientX - touchX) > 10 || Math.abs(t.clientY - touchY) > 10;
-      var onField = e.target.closest && e.target.closest('input, textarea, select, label');
+      var onField = e.target.closest && e.target.closest('input, textarea, select, label, button');
       if (!moved && !onField) focused.blur();
     }, { passive: true });
-
-    // Клавіатура відкрилась / змінила висоту — вирівнюємо ще раз
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', function () { if (focused) schedule(80); });
-    }
-    window.addEventListener('resize', function () {
-      if (focused) schedule(80);
-      else baseHeight = window.innerHeight; // поворот екрана, розгортання Telegram
-    });
   }
 
   // ---------- 10. Без зуму ----------

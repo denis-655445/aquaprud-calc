@@ -9,7 +9,7 @@
   <!-- SDK Telegram Mini Apps: дає Telegram.WebApp (тема, кнопки, вібровідгук) -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <!-- ?v=N — версія файлу: змінюємо при кожному оновленні, бо Telegram кешує Mini App -->
-  <link rel="stylesheet" href="css/style.css?v=2">
+  <link rel="stylesheet" href="css/style.css?v=3">
 </head>
 <body>
   <header class="head">
@@ -49,18 +49,24 @@
         <button type="button" class="seg__btn" data-fish="1">З рибою</button>
       </div>
 
+      <!-- Натискати можна на перемикач і на саме слово, але не правіше від нього -->
       <div class="switch">
         <label class="switch__control">
-          <input id="bio" type="checkbox" aria-labelledby="bioText">
+          <input id="bio" type="checkbox">
           <span class="switch__track" aria-hidden="true"></span>
+          <span class="switch__text">Біоплато</span>
         </label>
-        <span id="bioText" class="switch__text">Біоплато</span>
       </div>
-      <div id="bioFields" class="grid2" hidden>
-        <label class="field"><span class="field__label">Довжина біоплато, м</span>
-          <input id="Lb" class="input" inputmode="decimal" autocomplete="off" placeholder="0"></label>
-        <label class="field"><span class="field__label">Ширина біоплато, м</span>
-          <input id="Wb" class="input" inputmode="decimal" autocomplete="off" placeholder="0"></label>
+      <!-- Плавне розкриття: висота анімується через CSS (клас is-open) -->
+      <div id="bioFields" class="collapse">
+        <div class="collapse__inner">
+          <div class="grid2">
+            <label class="field"><span class="field__label">Довжина біоплато, м</span>
+              <input id="Lb" class="input" inputmode="decimal" autocomplete="off" placeholder="0"></label>
+            <label class="field"><span class="field__label">Ширина біоплато, м</span>
+              <input id="Wb" class="input" inputmode="decimal" autocomplete="off" placeholder="0"></label>
+          </div>
+        </div>
       </div>
 
       <label class="field"><span class="field__label">Плівка</span>
@@ -148,15 +154,52 @@
       <h2 id="h-client" class="block__title">Клієнт</h2>
       <label class="field"><span class="field__label">Ім'я</span>
         <input id="clientName" class="input" autocomplete="off"></label>
-      <label class="field" id="phoneField"><span class="field__label">Телефон</span>
-        <input id="clientPhone" class="input" type="tel" inputmode="tel" autocomplete="off"
-          placeholder="+380 67 123 45 67" aria-describedby="phoneHint">
-        <span id="phoneHint" class="field__hint" hidden>Номер неповний: потрібно 9 цифр після +380</span></label>
+      <!-- Телефон: вибір країни + маска «х», що показує, скільки цифр лишилось -->
+      <div class="field">
+        <span id="phoneLabel" class="field__label">Телефон</span>
+        <div class="seg seg--compact" role="group" aria-label="Країна номера">
+          <button type="button" class="seg__btn" data-country="UA">🇺🇦 +380</button>
+          <button type="button" class="seg__btn" data-country="PL">🇵🇱 +48</button>
+        </div>
+        <div class="mask">
+          <div class="mask__ghost" aria-hidden="true"><span id="phoneTyped" class="mask__typed"></span><span id="phoneRest"></span></div>
+          <input id="clientPhone" class="input mask__input" type="tel" inputmode="tel" autocomplete="off"
+            aria-labelledby="phoneLabel" aria-describedby="phoneHint">
+        </div>
+        <span id="phoneHint" class="field__hint" hidden></span>
+      </div>
       <label class="field"><span class="field__label">Адреса об'єкта</span>
         <input id="clientAddress" class="input" autocomplete="off"></label>
-      <label class="field"><span class="field__label">Коментар для себе</span>
-        <textarea id="comment" class="input input--area" rows="3" aria-describedby="commentHint"></textarea>
-        <span id="commentHint" class="field__hint field__hint--muted">Клієнт його не побачить: у текст кошторису коментар не потрапляє.</span></label>
+
+      <!-- Коментарі необов'язкові: поле з'являється лише на вимогу -->
+      <div class="note-add">
+        <button type="button" class="chip" data-note="clientComment">+ Коментар для клієнта</button>
+        <button type="button" class="chip" data-note="comment">+ Коментар для себе</button>
+      </div>
+      <div id="clientCommentBox" class="collapse">
+        <div class="collapse__inner">
+          <div class="field">
+            <div class="field__row">
+              <label for="clientComment" class="field__label">Коментар для клієнта</label>
+              <button type="button" class="linkbtn" data-note-remove="clientComment">Прибрати</button>
+            </div>
+            <textarea id="clientComment" class="input input--area" rows="3" aria-describedby="clientCommentHint"></textarea>
+            <span id="clientCommentHint" class="field__hint field__hint--muted">Буде в тексті кошторису, який отримає клієнт.</span>
+          </div>
+        </div>
+      </div>
+      <div id="commentBox" class="collapse">
+        <div class="collapse__inner">
+          <div class="field">
+            <div class="field__row">
+              <label for="comment" class="field__label">Коментар для себе</label>
+              <button type="button" class="linkbtn" data-note-remove="comment">Прибрати</button>
+            </div>
+            <textarea id="comment" class="input input--area" rows="3" aria-describedby="commentHint"></textarea>
+            <span id="commentHint" class="field__hint field__hint--muted">Лише для вас: клієнт його не побачить.</span>
+          </div>
+        </div>
+      </div>
     </section>
 
     <div class="actions">
@@ -179,36 +222,44 @@
   <div id="service" class="sheet" hidden>
     <div class="sheet__card" role="dialog" aria-modal="true" aria-labelledby="h-service">
       <h2 id="h-service" class="block__title">Службові налаштування</h2>
-      <div class="counter">
+      <div class="svc-row counter">
         <span id="laborLabel" class="counter__label">Роботи, %</span>
         <button type="button" class="counter__btn" data-svc="labor_pct" data-d="-10" aria-label="Мінус 10%">−</button>
         <output id="laborPct" class="counter__value">100</output>
         <button type="button" class="counter__btn" data-svc="labor_pct" data-d="10" aria-label="Плюс 10%">+</button>
       </div>
-      <div class="counter">
+      <div class="svc-row counter">
         <span class="counter__label">Націнка / знижка, %</span>
         <button type="button" class="counter__btn" data-svc="markup_pct" data-d="-5" aria-label="Мінус 5%">−</button>
         <output id="markupPct" class="counter__value">0</output>
         <button type="button" class="counter__btn" data-svc="markup_pct" data-d="5" aria-label="Плюс 5%">+</button>
       </div>
-      <div class="switch">
+      <div class="svc-row switch">
         <label class="switch__control">
-          <input id="hidePrices" type="checkbox" aria-labelledby="hidePricesText">
+          <input id="hidePrices" type="checkbox">
           <span class="switch__track" aria-hidden="true"></span>
+          <span class="switch__text">Приховати ціни на екрані</span>
         </label>
-        <span id="hidePricesText" class="switch__text">Приховати ціни на екрані</span>
+      </div>
+      <div class="svc-row">
+        <span id="fontLabel" class="svc-row__label">Розмір тексту</span>
+        <div class="seg" role="group" aria-labelledby="fontLabel">
+          <button type="button" class="seg__btn" data-font="1">Звичайний</button>
+          <button type="button" class="seg__btn" data-font="1.15">Великий</button>
+          <button type="button" class="seg__btn" data-font="1.3">Найбільший</button>
+        </div>
       </div>
       <button id="serviceDone" type="button" class="btn btn--primary">Готово</button>
     </div>
   </div>
 
   <!-- Порядок важливий: конфіг → дані → ядро → API → інтерфейс → запуск -->
-  <script src="js/config.js?v=2"></script>
-  <script src="../data/catalog.sample.js?v=2"></script>
-  <script src="../core/calc.js?v=2"></script>
-  <script src="../core/format.js?v=2"></script>
-  <script src="js/api.js?v=2"></script>
-  <script src="js/ui.js?v=2"></script>
-  <script src="js/app.js?v=2"></script>
+  <script src="js/config.js?v=3"></script>
+  <script src="../data/catalog.sample.js?v=3"></script>
+  <script src="../core/calc.js?v=3"></script>
+  <script src="../core/format.js?v=3"></script>
+  <script src="js/api.js?v=3"></script>
+  <script src="js/ui.js?v=3"></script>
+  <script src="js/app.js?v=3"></script>
 </body>
 </html>
