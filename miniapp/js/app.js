@@ -13,9 +13,15 @@
   var catalog = null;
   var state = defaultState();
   // null = значення з «Налаштувань»; fontScale — розмір тексту (1 / 1.15 / 1.3), не скидається «Новим кошторисом»
-  var service = { labor_pct: null, markup_pct: null, hidePrices: false, fontScale: 1 };
+  // scene — вид схеми: '2d' / '3d' і номер ракурсу 0–3 (теж не скидається)
+  var service = { labor_pct: null, markup_pct: null, hidePrices: false, fontScale: 1, scene: { mode: '2d', view: 0 } };
   var FONT_SCALES = [1, 1.15, 1.3];
   var lastEst = null;
+  var lastMetrics = null;  // метрики останнього розрахунку — для перемальовування схеми під час повороту
+  // 3D: 4 ракурси по діагоналі; › повертає глядача за годинниковою стрілкою (+90°)
+  var VIEW_AZ = [135, 225, 315, 45];
+  var sceneAz = null;      // поточний кут глядача (під час анімації — проміжний)
+  var animId = 0;
   var saveTimer = null;
   var serviceOpenedAt = 0; // час відкриття службової панелі
 
@@ -44,7 +50,8 @@
     tg.expand();  // розгортаємо на весь екран
     applyTheme();
     tg.onEvent('themeChanged', applyTheme);
-    if (tgVersion('6.2')) tg.enableClosingConfirmation(); // випадковий свайп не закриє незбережене
+    // 6. Підтвердження закриття («Внесённые изменения могут быть потеряны») вимкнено:
+    // усе введене й так зберігається в чернетці (localStorage) і повертається при наступному відкритті
     if (tgVersion('7.7')) tg.disableVerticalSwipes();      // прокрутка не згортає застосунок
     // Пункт «Налаштування» в меню «⋮». На iOS Telegram його поки не показує — основний спосіб
     // відкрити службову панель — довге натискання на заголовок (D15)
@@ -105,6 +112,8 @@
   function validateIds() {
     if (state.client.phoneCountry !== 'PL') state.client.phoneCountry = 'UA';
     if (FONT_SCALES.indexOf(Number(service.fontScale)) === -1) service.fontScale = 1;
+    var sc = service.scene || {};
+    service.scene = { mode: sc.mode === '3d' ? '3d' : '2d', view: [0, 1, 2, 3].indexOf(sc.view) === -1 ? 0 : sc.view };
     function exists(id) { return !!Calc.findItem(catalog, id); }
     var films = Calc.activeItems(catalog, 'film');
     if (!exists(state.inputs.filmId)) state.inputs.filmId = films.length ? films[0].id : '';
@@ -199,7 +208,8 @@
     var rec = Calc.recommend(inp, catalog, man.filterId);
     var m = rec.metrics;
 
-    UI.drawSketch($('sketch'), inp.shape, m);
+    lastMetrics = m;
+    drawScene();
 
     // Остаточний вибір: ручний має пріоритет над рекомендованим
     var sel = {
@@ -224,8 +234,7 @@
     kitOpt.dataset.label = kitPump ? 'У комплекті: ' + kitPump.name : 'У комплекті (у фільтра немає насоса)';
     kitOpt.disabled = !kitPump;
 
-    $('lights').value = state.decor.lights;
-    $('lights').textContent = state.decor.lights;
+    syncLights();
 
     if (!valid) {
       // Без розмірів рекомендації не мають сенсу — показуємо лише вибране
@@ -272,6 +281,94 @@
     // Нагадування, щоб режим «приховати ціни» не забувся увімкненим
     $('totalLabel').textContent = service.hidePrices ? 'Разом (ціни приховано)' : 'Разом';
     updateServicePanel();
+  }
+
+  // ---------- 2. Підсвітка: модель + кількість ----------
+  // «Без підсвітки» → 0, лічильник блідий і не натискається; вибрали модель → 1 шт;
+  // «−» до нуля → знову «Без підсвітки». Той самий підхід — для кількості сходинок (етап A2.1)
+  function syncLights() {
+    var off = state.decor.lightId === 'none';
+    if (off) state.decor.lights = 0;
+    $('lightId').value = state.decor.lightId;
+    $('lights').value = state.decor.lights;
+    $('lights').textContent = state.decor.lights;
+    $('lightsCounter').classList.toggle('is-off', off);
+    $('lightsCounter').querySelectorAll('button').forEach(function (b) { b.disabled = off; });
+  }
+
+  // ---------- 3. Схема ставка: 2D / 3D ----------
+  function drawScene() {
+    var m = lastMetrics;
+    if (!m) return;
+    var is3d = service.scene.mode === '3d';
+    document.querySelectorAll('[data-scene]').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.scene === service.scene.mode));
+    });
+    $('sceneNav').hidden = !is3d;
+    $('sceneDots').hidden = !is3d;
+    $('sketch').setAttribute('aria-label', is3d ? 'Схема ставка в 3D, ракурс ' + (service.scene.view + 1) + ' з 4' : 'Схема ставка, вид зверху');
+    if (!is3d) { UI.drawSketch($('sketch'), state.inputs.shape, m); return; }
+
+    if (sceneAz === null) sceneAz = VIEW_AZ[service.scene.view];
+    $('sceneDots').querySelectorAll('i').forEach(function (d, i) { d.classList.toggle('is-on', i === service.scene.view); });
+    var bioDepth = Calc.num(catalog.settings.bio_depth_m);
+    Sketch3D.draw($('sketch'), {
+      shape: state.inputs.shape, L: m.L, W: m.W, D: m.D,
+      bio: m.hasBio ? { L: m.Lb, W: m.Wb, depth: bioDepth } : null,
+      azimuth: sceneAz,
+      caption: Format.qty(m.L) + ' × ' + Format.qty(m.W) + ' м, глибина ' + Format.qty(m.D) + ' м' +
+        (state.inputs.shape === 'custom' ? ' (форма умовна)' : '')
+    });
+  }
+
+  // Поворот на сусідній ракурс: dir = +1 (›) або −1 (‹); плавно, якщо користувач не вимкнув анімації
+  function rotateView(dir) {
+    if (service.scene.mode !== '3d') return;
+    service.scene.view = (service.scene.view + dir + 4) % 4;
+    saveDraft();
+    haptic('select');
+    var from = sceneAz === null ? VIEW_AZ[service.scene.view] : sceneAz;
+    // Шлях до нового ракурсу саме в напрямку натиснутої стрілки
+    var d = ((VIEW_AZ[service.scene.view] - from) % 360 + 360) % 360;
+    if (dir < 0 && d > 0) d -= 360;
+    var to = from + d;
+    var id = ++animId;
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) { sceneAz = ((to % 360) + 360) % 360; drawScene(); return; }
+    var t0 = null;
+    function frame(now) {
+      if (id !== animId) return;                 // почався новий поворот — цей зупиняємо
+      if (t0 === null) t0 = now;
+      var k = Math.min(1, (now - t0) / 320);
+      var ease = 1 - Math.pow(1 - k, 3);         // швидкий старт, м'яке гальмування
+      sceneAz = from + (to - from) * ease;
+      drawScene();
+      if (k < 1) requestAnimationFrame(frame); else sceneAz = ((to % 360) + 360) % 360;
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function bindScene() {
+    document.querySelectorAll('[data-scene]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        service.scene.mode = b.dataset.scene;
+        haptic('select');
+        saveDraft();
+        drawScene();
+      });
+    });
+    document.querySelectorAll('[data-rotate]').forEach(function (b) {
+      b.addEventListener('click', function () { rotateView(Number(b.dataset.rotate)); });
+    });
+    // Свайп по схемі вліво / вправо — те саме, що стрілки (вертикальна прокрутка сторінки не заважає)
+    var sx = 0, sy = 0;
+    $('scene').addEventListener('touchstart', function (e) {
+      sx = e.touches[0].clientX; sy = e.touches[0].clientY;
+    }, { passive: true });
+    $('scene').addEventListener('touchend', function (e) {
+      var t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+      if (Math.abs(dx) > 40 && Math.abs(dx) > 1.5 * Math.abs(dy)) rotateView(dx < 0 ? 1 : -1);
+    }, { passive: true });
   }
 
   // Будь-яка зміна: зберегти чернетку і перерахувати
@@ -404,8 +501,13 @@
         var key = b.dataset.step, d = Number(b.dataset.d);
         var current = Calc.count($(key).textContent);
         var next = Math.max(0, Math.min(50, current + d));
-        if (key === 'lights') state.decor.lights = next;
-        else state.manual[key] = next;
+        if (key === 'lights') {
+          if (state.decor.lightId === 'none') return;          // без моделі кількість не змінюємо
+          state.decor.lights = next;
+          if (next === 0) state.decor.lightId = 'none';        // «−» до нуля = «Без підсвітки»
+        } else {
+          state.manual[key] = next;
+        }
         haptic('select');
         changed();
       });
@@ -475,6 +577,7 @@
 
     bindPhone();
     bindKeyboard();
+    bindScene();
 
     // Службова панель: довге натискання на весь блок заголовка
     bindLongPress(document.querySelector('.head'), openService);

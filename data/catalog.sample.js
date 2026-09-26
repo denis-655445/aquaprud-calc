@@ -5,7 +5,7 @@
  * Формат — JS (а не JSON), щоб застосунок відкривався навіть подвійним кліком по файлу.
  */
 var SAMPLE_CATALOG = {
-  version: 'test-2026-09-26',
+  version: 'test-2026-09-26b',
   is_test: true, // вмикає жовте попередження в застосунку і в тексті кошторису
 
   settings: {
@@ -41,11 +41,21 @@ var SAMPLE_CATALOG = {
     { id: 'FLT-T25', category: 'filter', name: 'Напірний фільтр Т-25 (ТЕСТ)', unit: 'шт', price: 14000, maxV_nofish: 25, maxV_fish: 12, pump_kit: 'PMP-T5', group: 'Обладнання' },
     { id: 'FLT-T50', category: 'filter', name: 'Напірний фільтр Т-50 (ТЕСТ)', unit: 'шт', price: 24000, maxV_nofish: 50, maxV_fish: 25, pump_kit: 'PMP-T8', group: 'Обладнання' },
     { id: 'FLT-T80', category: 'filter', name: 'Напірний фільтр Т-80 (ТЕСТ)', unit: 'шт', price: 36000, maxV_nofish: 80, maxV_fish: 40, pump_kit: 'PMP-T12', group: 'Обладнання' },
+    { id: 'FLT-T150', category: 'filter', name: 'Напірний фільтр Т-150 (ТЕСТ)', unit: 'шт', price: 52000, maxV_nofish: 150, maxV_fish: 75, pump_kit: 'PMP-T20', group: 'Обладнання' },
+    // Спарені фільтри: два однакові паралельно — удвічі більший об'єм; насос комплекту — теж пара
+    { id: 'FLT-2T150', category: 'filter', name: '2 × фільтр Т-150, паралельно (ТЕСТ)', unit: 'шт', price: 100000, maxV_nofish: 300, maxV_fish: 150, pump_kit: 'PMP-2T20', group: 'Обладнання' },
+    // Великі ставки: барабанні фільтри без насоса в комплекті
+    { id: 'FLT-DF600', category: 'filter', name: 'Барабанний фільтр 600 м³ (ТЕСТ)', unit: 'шт', price: 180000, maxV_nofish: 600, maxV_fish: 300, group: 'Обладнання' },
+    { id: 'FLT-DF2400', category: 'filter', name: 'Барабанний фільтр 2400 м³ (ТЕСТ)', unit: 'шт', price: 320000, maxV_nofish: 2400, maxV_fish: 1200, group: 'Обладнання' },
 
     // УФ-стерилізатори
     { id: 'UV-T9', category: 'uv', name: 'УФ-стерилізатор 9 Вт (ТЕСТ)', unit: 'шт', price: 2500, maxV_nofish: 10, maxV_fish: 5, group: 'Обладнання' },
     { id: 'UV-T24', category: 'uv', name: 'УФ-стерилізатор 24 Вт (ТЕСТ)', unit: 'шт', price: 5000, maxV_nofish: 30, maxV_fish: 15, group: 'Обладнання' },
     { id: 'UV-T55', category: 'uv', name: 'УФ-стерилізатор 55 Вт (ТЕСТ)', unit: 'шт', price: 9000, maxV_nofish: 70, maxV_fish: 35, group: 'Обладнання' },
+    { id: 'UV-T75', category: 'uv', name: 'УФ-стерилізатор 75 Вт (ТЕСТ)', unit: 'шт', price: 13000, maxV_nofish: 120, maxV_fish: 60, group: 'Обладнання' },
+    { id: 'UV-2T75', category: 'uv', name: '2 × УФ 75 Вт, паралельно (ТЕСТ)', unit: 'шт', price: 25000, maxV_nofish: 240, maxV_fish: 120, group: 'Обладнання' },
+    { id: 'UV-S4', category: 'uv', name: 'УФ-станція 4 × 130 Вт (ТЕСТ)', unit: 'шт', price: 90000, maxV_nofish: 1000, maxV_fish: 500, group: 'Обладнання' },
+    { id: 'UV-S8', category: 'uv', name: 'УФ-станція 8 × 130 Вт (ТЕСТ)', unit: 'шт', price: 170000, maxV_nofish: 2400, maxV_fish: 1200, group: 'Обладнання' },
 
     // Насоси: Q_max — потік без напору, H_max — максимальний напір
     { id: 'PMP-T3', category: 'pump', name: 'Насос 3000 л/год (ТЕСТ)', unit: 'шт', price: 3500, q_max: 3000, h_max: 2.5, group: 'Обладнання' },
@@ -54,6 +64,13 @@ var SAMPLE_CATALOG = {
     { id: 'PMP-T12', category: 'pump', name: 'Насос 12000 л/год (ТЕСТ)', unit: 'шт', price: 11000, q_max: 12000, h_max: 5, group: 'Обладнання' },
     { id: 'PMP-T20', category: 'pump', name: 'Насос 20000 л/год (ТЕСТ)', unit: 'шт', price: 17000, q_max: 20000, h_max: 6, group: 'Обладнання' },
     { id: 'PMP-T30', category: 'pump', name: 'Насос 30000 л/год (ТЕСТ)', unit: 'шт', price: 24000, q_max: 30000, h_max: 7, group: 'Обладнання' },
+    // Кілька однакових насосів паралельно: потоки додаються, максимальний напір той самий
+    { id: 'PMP-2T20', category: 'pump', name: '2 × насос 20000 л/год, паралельно (ТЕСТ)', unit: 'шт', price: 34000, q_max: 40000, h_max: 6, group: 'Обладнання' },
+    { id: 'PMP-T50', category: 'pump', name: 'Насос 50000 л/год (ТЕСТ)', unit: 'шт', price: 38000, q_max: 50000, h_max: 8, group: 'Обладнання' },
+    { id: 'PMP-T80', category: 'pump', name: 'Насос 80000 л/год (ТЕСТ)', unit: 'шт', price: 60000, q_max: 80000, h_max: 10, group: 'Обладнання' },
+    { id: 'PMP-S3', category: 'pump', name: 'Насосна станція 3 × 80 м³/год (ТЕСТ)', unit: 'шт', price: 175000, q_max: 240000, h_max: 10, group: 'Обладнання' },
+    { id: 'PMP-S4', category: 'pump', name: 'Насосна станція 4 × 150 м³/год (ТЕСТ)', unit: 'шт', price: 400000, q_max: 600000, h_max: 20, group: 'Обладнання' },
+    { id: 'PMP-S6', category: 'pump', name: 'Насосна станція 6 × 150 м³/год (ТЕСТ)', unit: 'шт', price: 580000, q_max: 900000, h_max: 20, group: 'Обладнання' },
 
     // Скіммери й донні зливи (кількість рахується, модель — найдешевша)
     { id: 'SKM-T1', category: 'skimmer', name: 'Скіммер (ТЕСТ)', unit: 'шт', price: 3000, group: 'Обладнання' },
@@ -80,3 +97,6 @@ var SAMPLE_CATALOG = {
     { id: 'EXT-AIR', category: 'extra', name: 'Аератор (ТЕСТ)', unit: 'шт', price: 4500, group: 'Обладнання' }
   ]
 };
+
+// Для тестів у Node.js (перевірка, що каталог покриває ставки до 30 × 10 × 5 м); у браузері рядок пропускається
+if (typeof module !== 'undefined' && module.exports) module.exports = SAMPLE_CATALOG;

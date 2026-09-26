@@ -9,7 +9,7 @@
   <!-- SDK Telegram Mini Apps: дає Telegram.WebApp (тема, кнопки, вібровідгук) -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <!-- ?v=N — версія файлу: змінюємо при кожному оновленні, бо Telegram кешує Mini App -->
-  <link rel="stylesheet" href="css/style.css?v=3">
+  <link rel="stylesheet" href="css/style.css?v=4">
 </head>
 <body>
   <header class="head">
@@ -33,7 +33,23 @@
         <button type="button" class="seg__btn" data-shape="custom">Нестандартний</button>
       </div>
 
-      <svg id="sketch" class="sketch" viewBox="0 0 320 150" role="img" aria-label="Схема ставка, вид зверху"></svg>
+      <!-- Схема ставка: 2D (вид зверху) або 3D (4 ракурси по діагоналі) -->
+      <div id="scene" class="scene">
+        <svg id="sketch" class="sketch" viewBox="0 0 320 178" role="img" aria-label="Схема ставка"></svg>
+        <div class="seg scene__mode" role="group" aria-label="Вид схеми">
+          <button type="button" class="seg__btn" data-scene="2d">2D</button>
+          <button type="button" class="seg__btn" data-scene="3d">3D</button>
+        </div>
+        <div id="sceneDots" class="scene__dots" aria-hidden="true" hidden><i></i><i></i><i></i><i></i></div>
+        <div id="sceneNav" class="scene__nav" hidden>
+          <button type="button" class="scene__arrow" data-rotate="-1" aria-label="Попередній ракурс">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg>
+          </button>
+          <button type="button" class="scene__arrow" data-rotate="1" aria-label="Наступний ракурс">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>
+          </button>
+        </div>
+      </div>
 
       <div class="grid3">
         <label class="field"><span class="field__label">Довжина, м</span>
@@ -131,7 +147,8 @@
       <div class="grid-light">
         <label class="field"><span class="field__label">Підсвітка</span>
           <select id="lightId" class="input"></select></label>
-        <div class="counter counter--compact">
+        <!-- Кількість активна лише з вибраною моделлю; «без підсвітки» — 0 і блідо -->
+        <div id="lightsCounter" class="counter counter--compact">
           <button type="button" class="counter__btn" data-step="lights" data-d="-1" aria-label="Менше світильників">−</button>
           <output id="lights" class="counter__value">0</output>
           <button type="button" class="counter__btn" data-step="lights" data-d="1" aria-label="Більше світильників">+</button>
@@ -254,12 +271,14 @@
   </div>
 
   <!-- Порядок важливий: конфіг → дані → ядро → API → інтерфейс → запуск -->
-  <script src="js/config.js?v=3"></script>
-  <script src="../data/catalog.sample.js?v=3"></script>
-  <script src="../core/calc.js?v=3"></script>
-  <script src="../core/format.js?v=3"></script>
-  <script src="js/api.js?v=3"></script>
-  <script src="js/ui.js?v=3"></script>
-  <script src="js/app.js?v=3"></script>
+  <script src="js/config.js?v=4"></script>
+  <script src="../data/catalog.sample.js?v=4"></script>
+  <script src="../core/calc.js?v=4"></script>
+  <script src="../core/format.js?v=4"></script>
+  <script src="../core/pondgeo.js?v=4"></script>
+  <script src="js/api.js?v=4"></script>
+  <script src="js/ui.js?v=4"></script>
+  <script src="js/sketch3d.js?v=4"></script>
+  <script src="js/app.js?v=4"></script>
 </body>
 </html>

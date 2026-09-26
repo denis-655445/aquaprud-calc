@@ -10,6 +10,7 @@
   --fb-danger: #c8372d;
   --water: #13707a;          /* глибока вода: схема ставка і «рекомендовано» */
   --water-fill: rgba(19, 112, 122, 0.16);
+  --ground: #8a7a55;         /* земля навколо ставка на 3D-схемі */
   --test-bg: #fff3c4;
   --test-text: #5c4300;
 
@@ -37,12 +38,13 @@
     --fb-line: #2a333b;
     --water: #5cc0c9;
     --water-fill: rgba(92, 192, 201, 0.18);
+    --ground: #b8a67c;
     --test-bg: #3a3212;
     --test-text: #f3dc8a;
   }
 }
 /* Темна тема в Telegram: клас ставить app.js за Telegram.WebApp.colorScheme */
-html.tg-dark { --water: #5cc0c9; --water-fill: rgba(92, 192, 201, 0.18); --test-bg: #3a3212; --test-text: #f3dc8a; }
+html.tg-dark { --water: #5cc0c9; --water-fill: rgba(92, 192, 201, 0.18); --ground: #b8a67c; --test-bg: #3a3212; --test-text: #f3dc8a; }
 
 /* ===== База ===== */
 * { box-sizing: border-box; }
@@ -101,6 +103,8 @@ select.input {
 }
 .input--area { min-height: 76px; resize: vertical; }
 .input.is-invalid { border-color: var(--danger); }
+/* 1. Рамка фокуса — всередині поля: у блоках, що розгортаються (overflow: hidden), зовнішня обрізалась по краях */
+.input:focus-visible { outline-offset: -2px; }
 .mask { position: relative; border-radius: 10px; background: var(--bg); }
 .mask__ghost {
   position: absolute; inset: 0; display: flex; align-items: center;
@@ -128,7 +132,32 @@ select.input {
 .seg__btn[aria-pressed="true"] { background: var(--card); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
 
 /* ===== Схема ставка ===== */
-.sketch { display: block; width: 100%; height: auto; margin: 0 0 12px; }
+.scene { position: relative; margin: 0 0 12px; }
+.sketch { display: block; width: 100%; height: auto; }
+/* 2D / 3D — у кутку схеми, як на картах */
+.scene__mode { position: absolute; top: 0; right: 0; margin: 0; }
+.scene__mode .seg__btn { flex: none; min-width: 48px; min-height: 34px; padding: 4px 12px; }
+/* Стрілки ракурсів — справа знизу, як на банерах; зона дотику 44×44 */
+.scene__nav { position: absolute; right: 0; bottom: 0; display: flex; gap: 8px; }
+.scene__arrow {
+  display: grid; place-items: center; width: 44px; height: 44px; padding: 0;
+  border: 1px solid var(--line); border-radius: 50%; background: var(--card); color: var(--text); cursor: pointer;
+}
+.scene__arrow:active { opacity: 0.6; }
+.scene__arrow svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+/* Крапки: який з 4 ракурсів зараз */
+.scene__dots { position: absolute; left: 4px; bottom: 18px; display: flex; gap: 6px; }
+.scene__dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
+.scene__dots i.is-on { background: var(--water); }
+/* 3D: ділянка землі, стінки, дно (глибше — темніше), ребра: видимі суцільні, невидимі — пунктир */
+.s3-ground { fill: var(--ground); fill-opacity: 0.14; stroke: var(--ground); stroke-opacity: 0.4; stroke-width: 1; }
+.s3-wall { fill: var(--water); fill-opacity: 0.22; }
+.s3-floor { fill: var(--water); fill-opacity: 0.14; }
+.s3-line { fill: none; stroke: var(--water); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+.s3-line--rim { stroke-width: 2; }
+.s3-line--hidden { stroke-width: 1; stroke-dasharray: 4 3; stroke-linecap: butt; opacity: 0.6; }
+/* Підпис поверх ліній: обведення кольором картки, щоб текст не зливався з ребрами */
+.s3-label { paint-order: stroke; stroke: var(--card); stroke-width: 3px; stroke-linejoin: round; }
 .sk-water { fill: var(--water-fill); stroke: var(--water); stroke-width: 2; }
 .sk-water--custom { stroke-dasharray: 6 4; }
 .sk-bio { fill: none; stroke: var(--water); stroke-width: 1.5; stroke-dasharray: 3 3; }
@@ -186,6 +215,10 @@ select.input {
 .grid-light { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
 .grid-light .field { margin-bottom: 10px; }
 .counter--compact { margin-bottom: 10px; }
+/* 2. «Без підсвітки»: кількість 0, блідо й не натискається */
+.counter.is-off { opacity: 0.4; }
+.counter__btn:disabled { cursor: default; }
+.counter__btn:disabled:active { opacity: 1; }
 
 /* ===== Додаткові позиції: клікабельний лише прапорець (зона 44×44 для пальця) ===== */
 .check { display: flex; align-items: center; min-height: 44px; }
@@ -234,6 +267,13 @@ select.input {
 }
 /* 9. Під час введення панель ховаємо: над клавіатурою вона закривала поля */
 body.typing .totalbar { display: none; }
+/* 5. Телефон у альбомній орієнтації: нижня панель закривала пів екрана — ховаємо зовсім,
+   а схему вміщаємо у висоту екрана (підсумок лишається в блоці «Кошторис») */
+@media (orientation: landscape) and (max-height: 500px) {
+  .totalbar { display: none; }
+  body { padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+  .sketch { max-height: calc(var(--tg-viewport-stable-height, 100vh) - 24px); }
+}
 
 /* ===== Службова панель ===== */
 .sheet { position: fixed; inset: 0; z-index: 20; display: flex; align-items: flex-end; justify-content: center; background: rgba(0, 0, 0, 0.4); }

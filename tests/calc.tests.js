@@ -35,8 +35,8 @@ var CalcTests = (function () {
   function near(a, b) { return Math.abs(a - b) < 1e-6; }
   function copy(o, patch) { var r = {}, k; for (k in o) r[k] = o[k]; for (k in patch) r[k] = patch[k]; return r; }
 
-  // Кожен тест: [назва, функція, що повертає true / false]
-  function cases(Calc, Format) {
+  // Кожен тест: [назва, функція, що повертає true / false]. sample — тестовий каталог застосунку (необов'язково)
+  function cases(Calc, Format, sample) {
     var s = FIXTURE.settings;
     return [
       ['Площа прямокутника 6×4 = 24', function () {
@@ -132,13 +132,27 @@ var CalcTests = (function () {
       ['Форматування: 1234567,5 → «1 234 567,50 грн»', function () {
         var n = Format.NBSP;
         return Format.money(1234567.5) === '1' + n + '234' + n + '567,50' + n + 'грн';
+      }],
+      ['Тестовий каталог: для будь-якого ставка до 30 × 10 × 5 м є фільтр, УФ і насос', function () {
+        if (!sample) throw new Error('каталог не передано');
+        var ok = true;
+        [1, 3, 6, 10, 20, 30].forEach(function (L) { [1, 3, 6, 10].forEach(function (W) {
+          [0.5, 1.5, 3, 5].forEach(function (D) { [false, true].forEach(function (fish) {
+            [0, 30].forEach(function (distance) { ['rect', 'oval', 'custom'].forEach(function (shape) {
+              var r = Calc.recommend({ shape: shape, L: L, W: W, D: D, fish: fish, bio: true, Lb: 10, Wb: 5,
+                distance: distance, lift: '' }, sample, null);
+              if (r.filterId === 'none' || r.uvId === 'none' || r.pump.id === 'none') ok = false;
+            }); });
+          }); });
+        }); });
+        return ok;
       }]
     ];
   }
 
   // Запуск усіх тестів; повертає масив результатів
-  function run(Calc, Format) {
-    return cases(Calc, Format).map(function (c) {
+  function run(Calc, Format, sample) {
+    return cases(Calc, Format, sample).map(function (c) {
       var ok = false, error = '';
       try { ok = c[1]() === true; } catch (e) { error = String(e && e.message || e); }
       return { name: c[0], ok: ok, error: error };

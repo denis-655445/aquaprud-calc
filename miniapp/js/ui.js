@@ -65,6 +65,9 @@ var UI = (function () {
   function drawSketch(svg, shape, m) {
     var NS = 'http://www.w3.org/2000/svg';
     while (svg.firstChild) svg.removeChild(svg.firstChild);
+    // Згори — смуга 40 px під перемикач 2D/3D; поле малювання те саме, що й раніше (320 × 150)
+    var PAD_TOP = 40;
+    svg.setAttribute('viewBox', '0 0 320 ' + (150 + PAD_TOP));
 
     function node(tag, attrs, text) {
       var n = document.createElementNS(NS, tag);
@@ -75,13 +78,13 @@ var UI = (function () {
     }
 
     if (!(m.L > 0 && m.W > 0)) {
-      node('text', { x: 160, y: 80, 'text-anchor': 'middle', 'class': 'sk-hint' }, 'Тут з\'явиться схема ставка');
+      node('text', { x: 160, y: 80 + PAD_TOP, 'text-anchor': 'middle', 'class': 'sk-hint' }, 'Тут з\'явиться схема ставка');
       return;
     }
 
     // Поле малювання: ліворуч місце під підпис ширини, знизу — під підпис довжини
-    var left = 44, right = 10, top = 8, bottom = 26, gapPx = 12;
-    var availW = 320 - left - right, availH = 150 - top - bottom;
+    var left = 44, right = 10, top = 8 + PAD_TOP, bottom = 26, gapPx = 12;
+    var availW = 320 - left - right, availH = 150 - 8 - bottom;
     var bioL = m.hasBio ? m.Lb : 0, bioW = m.hasBio ? m.Wb : 0;
     var scale = Math.min((availW - (m.hasBio ? gapPx : 0)) / (m.L + bioL), availH / Math.max(m.W, bioW));
 

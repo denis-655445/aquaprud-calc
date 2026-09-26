@@ -6,16 +6,17 @@
 ## Структура
 
 ```
-core/            ядро: розрахунок (calc.js) і текст кошторису (format.js)
-miniapp/         сам застосунок: index.html, css/, js/
-data/            тестовий каталог
-tests/           тести ядра: tests.html (браузер), run-node.js (Node.js)
+core/            ядро: розрахунок (calc.js), текст кошторису (format.js), геометрія схеми 2D/3D (pondgeo.js)
+miniapp/         сам застосунок: index.html, css/, js/ (3D-схема — js/sketch3d.js)
+data/            тестовий каталог (покриває ставки до 30 × 10 × 5 м)
+tests/           тести: tests.html (браузер), run-node.js (Node.js); сходинки — stairs.tests.js (node tests/stairs.tests.js)
+docs/            project_status.md (опис проєкту), stairs_math.md (математика сходинок)
 ```
 
 ## Перевірка на MacBook без інтернету й сервера
 
 Відкрийте подвійним кліком `miniapp/index.html` — застосунок запрацює в браузері.
-Тести ядра: `tests/tests.html` — має бути «Усі … тестів пройдено».
+Тести: `tests/tests.html` — має бути «Усі 35 тестів пройдено».
 
 ## Публікація
 
