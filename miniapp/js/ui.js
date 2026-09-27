@@ -68,12 +68,15 @@ var UI = (function () {
    *   layers: [{ rings: [[[x, y], …], …], rank, active, error }] — сходинки (rank 0 — наймілкіша);
    *   points: [{ id, p: [x, y], selected }] — точки активної сходинки, їх натискають (data-point).
    */
-  function drawSketch(svg, shape, m, overlay, bioOpt) {
+  function drawSketch(svg, shape, m, overlay, bioOpt, fitOpt) {
     var NS = 'http://www.w3.org/2000/svg';
     while (svg.firstChild) svg.removeChild(svg.firstChild);
-    // Згори — смуга 40 px під перемикач 2D/3D; поле малювання те саме, що й раніше (320 × 150)
-    var PAD_TOP = 40;
-    svg.setAttribute('viewBox', '0 0 320 ' + (150 + PAD_TOP));
+    // v0.6.2 (D57): SVG у реальних пікселях блока, як 3D. Креслення — найбільше, що вміщається в ширину
+    // і в hMax і не заходить під перемикач 2D / 3D (fitOpt.avoid.top). Блок — висотою з креслення, без порожнечі
+    fitOpt = fitOpt || {};
+    var box = fitOpt.box || { w: 320, hMax: 190 }, tops = (fitOpt.avoid && fitOpt.avoid.top) || [];
+    var fontPx = 12 * (fitOpt.fs || 1);                  // як .sk-label: 12px × --fs
+    var PAD = 6, GAP = 6;
 
     function node(tag, attrs, text, parent) {
       var n = document.createElementNS(NS, tag);
@@ -84,7 +87,9 @@ var UI = (function () {
     }
 
     if (!(m.L > 0 && m.W > 0)) {
-      node('text', { x: 160, y: 80 + PAD_TOP, 'text-anchor': 'middle', 'class': 'sk-hint' }, 'Тут з\'явиться схема ставка');
+      var hh = Math.min(box.hMax, 150);
+      svg.setAttribute('viewBox', '0 0 ' + Math.round(box.w) + ' ' + hh);
+      node('text', { x: box.w / 2, y: hh / 2 + 16, 'text-anchor': 'middle', 'class': 'sk-hint' }, 'Тут з\'явиться схема ставка');
       return;
     }
     var ov = overlay || { layers: [], points: [] };
@@ -96,19 +101,67 @@ var UI = (function () {
     // «Разом»: спільний контур дзеркала, мілка зона біоплато і шов по стінці ставка (PondGeo.bioJoin, те саме в 3D)
     var jn = m.hasBio && bioOpt.joined ? PondGeo.bioJoin(shape, m.L, m.W, { L: m.Lb, W: m.Wb }, side) : null;
     var br = jn ? jn.rect : m.hasBio ? PondGeo.bioRect(m.L, m.W, { L: m.Lb, W: m.Wb }, side) : null;
+    // 1. Що має вміститися: контури (м, план) + підписи й кружечки точок (px навколо точки плану)
+    var pts = [];
+    function add(mx, my, dx, dy) { pts.push({ mx: mx, my: my, dx: dx || 0, dy: dy || 0 }); }
+    // Контур дрібними кроками: сторона може зайти під перемикач навіть без вершини там
+    function addRing(ring) {
+      var bb = [Infinity, -Infinity]; ring.forEach(function (q) { bb[0] = Math.min(bb[0], q[0]); bb[1] = Math.max(bb[1], q[0]); });
+      var stepM = Math.max(1e-6, (bb[1] - bb[0]) / 40);
+      ring.forEach(function (q, i) {
+        var r = ring[(i + 1) % ring.length], n = Math.max(1, Math.ceil(Math.hypot(r[0] - q[0], r[1] - q[1]) / stepM));
+        for (var k = 0; k < n; k++) add(q[0] + (r[0] - q[0]) * k / n, q[1] + (r[1] - q[1]) * k / n);
+      });
+    }
+    // Прямокутник у px навколо точки плану: кути й точки вздовж верхнього краю
+    function addBox(mx, my, bx0, by0, bx1, by1) {
+      for (var k = 0; k <= 8; k++) add(mx, my, bx0 + (bx1 - bx0) * k / 8, by0);
+      add(mx, my, bx0, by1); add(mx, my, bx1, by1);
+    }
+    var tw = function (t) { return 0.6 * fontPx * t.length + 4; };   // оцінка ширини тексту, px
+    var asc = 0.75 * fontPx, desc = 0.25 * fontPx;
     var labelTop = side === 'bottom', labelRight = side === 'left';   // «L м» над ставком, «W м» праворуч
-    // Поле малювання: місце під підписи ширини й довжини (з точками — трохи більше)
-    var sideM = withPts ? 50 : 44, thinM = withPts ? 14 : 10;
-    var left = labelRight ? thinM : sideM, right = labelRight ? sideM : thinM;
-    var top = (withPts ? 14 : 8) + PAD_TOP + (labelTop ? 18 : 0), bottom = labelTop ? 10 : (withPts ? 32 : 26);
-    var availW = 320 - left - right, availH = 150 + PAD_TOP - top - bottom;
-    var xmin = Math.min(0, br ? br[0] : 0), xmax = Math.max(m.L, br ? br[0] + br[2] : 0);
-    var ymin = Math.min(0, br ? br[1] : 0), ymax = Math.max(m.W, br ? br[1] + br[3] : 0);
-    var scale = Math.min(availW / (xmax - xmin), availH / (ymax - ymin));
+    var off = withPts ? 14 : 6, lenBase = withPts ? 24 : 17;
+    var lenT = Format.qty(m.L) + ' м', widT = Format.qty(m.W) + ' м', BIO_T = 'біоплато';
+    addRing(jn ? jn.union : PondGeo.outline(shape, m.L, m.W));
+    if (br && !jn) addRing(PondGeo.rect(br[0], br[1], br[2], br[3]));
+    ov.points.forEach(function (pt) { addBox(pt.p[0], pt.p[1], -11, -11, 11, 11); });  // кружечок r = 8,5 + обведення
+    if (labelTop) addBox(m.L / 2, 0, -tw(lenT) / 2, -(off + 3) - asc, tw(lenT) / 2, -(off + 3) + desc);
+    else addBox(m.L / 2, m.W, -tw(lenT) / 2, lenBase - asc, tw(lenT) / 2, lenBase + desc);
+    if (labelRight) addBox(m.L, m.W / 2, off, 4 - asc, off + tw(widT), 4 + desc);
+    else addBox(0, m.W / 2, -off - tw(widT), 4 - asc, -off, 4 + desc);
+    if (br) {
+      if (side === 'right' || side === 'left') addBox(br[0] + br[2] / 2, br[1] + br[3], -tw(BIO_T) / 2, 17 - asc, tw(BIO_T) / 2, 17 + desc);
+      else addBox(br[0] + br[2], br[1] + br[3] / 2, 6, 4 - asc, 6 + tw(BIO_T), 4 + desc);  // праворуч від біоплато
+    }
 
-    var w = m.L * scale, h = m.W * scale;
-    var x0 = left + (availW - (xmax - xmin) * scale) / 2 - xmin * scale;
-    var y0 = top + (availH - (ymax - ymin) * scale) / 2 - ymin * scale;
+    // 2. Найбільший масштаб s: X = offX + s·mx + dx, Y = t + s·my + dy
+    var inX = function (X, r) { return X >= r.x0 - GAP && X <= r.x1 + GAP; };
+    var hMin = 0;
+    tops.forEach(function (r) { hMin = Math.max(hMin, r.y1 + PAD); });   // блок не нижчий за перемикач
+    function place(sc) {
+      var xl = Infinity, xr = -Infinity;
+      pts.forEach(function (p) { var X = sc * p.mx + p.dx; xl = Math.min(xl, X); xr = Math.max(xr, X); });
+      if (xr - xl > box.w - 2 * PAD) return null;        // ширше за блок
+      var offX = (box.w - xl - xr) / 2, t = -Infinity, hh2 = hMin;   // по центру блока
+      pts.forEach(function (p) {
+        var X = offX + sc * p.mx + p.dx, Y = sc * p.my + p.dy;
+        t = Math.max(t, PAD - Y);
+        tops.forEach(function (r) { if (inX(X, r)) t = Math.max(t, r.y1 + GAP - Y); });  // під перемикачем — нижче за нього
+      });
+      pts.forEach(function (p) { hh2 = Math.max(hh2, t + sc * p.my + p.dy + PAD); });
+      return { s: sc, offX: offX, t: t, h: hh2 };
+    }
+    var mx0 = Infinity, mx1 = -Infinity;
+    pts.forEach(function (p) { mx0 = Math.min(mx0, p.mx); mx1 = Math.max(mx1, p.mx); });
+    var lo = 0, hi = (box.w - 2 * PAD) / Math.max(1e-9, mx1 - mx0);
+    for (var it = 0; it < 30; it++) {                     // бінарний пошук, як у 3D
+      var mid = (lo + hi) / 2, r0 = place(mid);
+      if (r0 && r0.h <= box.hMax) lo = mid; else hi = mid;
+    }
+    var fit = place(lo) || { s: lo, offX: PAD, t: PAD, h: Math.max(hMin, 60) };
+    svg.setAttribute('viewBox', '0 0 ' + Math.round(box.w) + ' ' + Math.round(fit.h));
+    var scale = fit.s, w = m.L * scale, h = m.W * scale, x0 = fit.offX, y0 = fit.t;
     function X(p) { return (x0 + p[0] * scale).toFixed(1) + ' ' + (y0 + p[1] * scale).toFixed(1); }
 
     function ringD(ring) { return 'M' + ring.map(X).join('L') + 'Z'; }
@@ -150,7 +203,7 @@ var UI = (function () {
       if (side === 'right' || side === 'left') {                  // підпис під біоплато
         node('text', { x: bx + bw / 2, y: by + bh + 17, 'text-anchor': 'middle', 'class': 'sk-label' }, bw > 56 ? 'біоплато' : 'біо');
       } else {                                                    // згори / знизу — збоку від біоплато
-        var roomRight = 316 - (bx + bw + 6) > 56;
+        var roomRight = box.w - PAD - (bx + bw + 6) >= tw(BIO_T) - 4;   // місце праворуч зарезервоване в п. 1
         node('text', { x: roomRight ? bx + bw + 6 : bx - 6, y: by + bh / 2 + 4, 'text-anchor': roomRight ? 'start' : 'end', 'class': 'sk-label' }, 'біоплато');
       }
     }

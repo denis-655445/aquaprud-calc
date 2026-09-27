@@ -81,8 +81,8 @@ var Sketch3D = (function () {
   function fitLayout(scene, opts) {
     var box = opts.box, avoid = opts.avoid || {}, tops = avoid.top || [], bottoms = avoid.bottom || [];
     var fontPx = LABEL_PX * (opts.fs || 1);
-    var center = PondGeo.sceneCenter(scene), pts = [];
-    (opts.views || FIT_VIEWS).forEach(function (az) {
+    var center = PondGeo.sceneCenter(scene), pts = [], views = opts.views || FIT_VIEWS;
+    views.forEach(function (az, vi) {
       var cam = PondGeo.camera(az, ELEVATION), c0 = PondGeo.project(cam, center[0], center[1], 0);
       var hull = PondGeo.convexHull(PondGeo.projectedPoints(scene, cam).map(function (p) { return [p[0] - c0[0], p[1] - c0[1]]; }));
       var span = 0;
@@ -90,13 +90,13 @@ var Sketch3D = (function () {
       // Точки вздовж сторін силуету: сторона може перетнути кнопку навіть без вершини всередині
       hull.forEach(function (a, i) {
         var b = hull[(i + 1) % hull.length], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / (span / 80)));
-        for (var k = 0; k < n; k++) pts.push({ mx: a[0] + (b[0] - a[0]) * k / n, my: a[1] + (b[1] - a[1]) * k / n, dx: 0, dy: 0 });
+        for (var k = 0; k < n; k++) pts.push({ v: vi, mx: a[0] + (b[0] - a[0]) * k / n, my: a[1] + (b[1] - a[1]) * k / n, dx: 0, dy: 0 });
       });
       var lab = bioLabelAnchor(scene, cam);
       if (lab) {
         var lb = labelBox(lab.below, fontPx);
         [[lb.x0, lb.y0], [lb.x1, lb.y0], [lb.x1, lb.y1], [lb.x0, lb.y1], [0, lb.y0], [0, lb.y1]].forEach(function (d) {
-          pts.push({ mx: lab.x - c0[0], my: lab.y - c0[1], dx: d[0], dy: d[1] });
+          pts.push({ v: vi, mx: lab.x - c0[0], my: lab.y - c0[1], dx: d[0], dy: d[1] });
         });
       }
     });
@@ -107,25 +107,29 @@ var Sketch3D = (function () {
     var hMin = PAD * 2;
     tops.forEach(function (r) { bottoms.forEach(function (q) { hMin = Math.max(hMin, r.y1 + q.h + GAP); }); });
 
-    function place(s) {
-      var xl = Infinity, xr = -Infinity;
-      pts.forEach(function (p) { var X = s * p.mx + p.dx; xl = Math.min(xl, X); xr = Math.max(xr, X); });
-      if (xr - xl > box.w - 2 * PAD) return null;           // ширше за блок
-      var offX = (box.w - xl - xr) / 2;                      // по центру блока
-      var inX = function (X, r) { return X >= r.x0 - GAP && X <= r.x1 + GAP; };
-      var t = 0;
-      pts.forEach(function (p) {
+    var inX = function (X, r) { return X >= r.x0 - GAP && X <= r.x1 + GAP; };
+    // Зсув згори (t) і висота блока (h) для набору точок: креслення не заходить під кнопки
+    function vertical(list, s, offX) {
+      var t = 0, h = hMin;
+      list.forEach(function (p) {
         var X = offX + s * p.mx + p.dx, Y = s * (p.my - minY) + p.dy;
         t = Math.max(t, PAD - Y);
         tops.forEach(function (r) { if (inX(X, r)) t = Math.max(t, r.y1 + GAP - Y); });
       });
-      var h = hMin;
-      pts.forEach(function (p) {
+      list.forEach(function (p) {
         var X = offX + s * p.mx + p.dx, Y = t + s * (p.my - minY) + p.dy;
         h = Math.max(h, Y + PAD);
         bottoms.forEach(function (r) { if (inX(X, r)) h = Math.max(h, Y + GAP + r.h); });
       });
-      return { s: s, offX: offX, t: t, h: h, minY: minY, center: center };
+      return { t: t, h: h };
+    }
+    function place(s) {
+      var xl = Infinity, xr = -Infinity;
+      pts.forEach(function (p) { var X = s * p.mx + p.dx; xl = Math.min(xl, X); xr = Math.max(xr, X); });
+      if (xr - xl > box.w - 2 * PAD) return null;           // ширше за блок
+      var offX = (box.w - xl - xr) / 2;                      // по центру блока (для всіх ракурсів однаково)
+      var all = vertical(pts, s, offX);
+      return { s: s, offX: offX, t: all.t, h: all.h, minY: minY, center: center };
     }
 
     // Бінарний пошук найбільшого масштабу, що вміщається
@@ -134,7 +138,27 @@ var Sketch3D = (function () {
       var mid = (lo + hi) / 2, r = place(mid);
       if (r && r.h <= opts.box.hMax) lo = mid; else hi = mid;
     }
-    return place(lo) || { s: lo, offX: box.w / 2, t: PAD, h: hMin, minY: minY, center: center };
+    var fit = place(lo) || { s: lo, offX: box.w / 2, t: PAD, h: hMin, minY: minY, center: center };
+    // v0.6.2 (D57): масштаб — спільний для 4 ракурсів (≤ hMax у кожному), а висота блока — своя для ракурсу:
+    // згори й знизу немає порожнечі, яку «тримав» найвищий ракурс. Між ракурсами — плавний перехід (viewFit)
+    fit.views = views.map(function (az, vi) {
+      var v = vertical(pts.filter(function (p) { return p.v === vi; }), fit.s, fit.offX);
+      return { az: az, t: v.t, h: v.h };
+    });
+    return fit;
+  }
+
+  // t і h для довільного кута: лінійно між двома сусідніми ракурсами (під час повороту висота змінюється плавно)
+  function viewFit(fit, azimuth) {
+    var vs = (fit.views || []).slice().sort(function (p, q) { return p.az - q.az; });
+    if (!vs.length) return { t: fit.t, h: fit.h };
+    var a = ((azimuth % 360) + 360) % 360;
+    for (var i = 0; i < vs.length; i++) {
+      var p = vs[i], q = vs[(i + 1) % vs.length];
+      var span = ((q.az - p.az) % 360 + 360) % 360 || 360, d = ((a - p.az) % 360 + 360) % 360;
+      if (d <= span) { var k = d / span; return { t: p.t + (q.t - p.t) * k, h: p.h + (q.h - p.h) * k }; }
+    }
+    return { t: vs[0].t, h: vs[0].h };
   }
 
   /*
@@ -172,8 +196,9 @@ var Sketch3D = (function () {
 
     var cam = PondGeo.camera(opts.azimuth, ELEVATION);
     var c0 = PondGeo.project(cam, fit.center[0], fit.center[1], 0);
-    // Екранні координати креслення → px SVG: центр сцени лишається на місці під час повороту
-    function toSvg(p) { return [fit.offX + (p[0] - c0[0]) * s, fit.t + (p[1] - c0[1] - fit.minY) * s]; }
+    var vf = viewFit(fit, opts.azimuth);                   // зсув і висота саме для цього ракурсу (D57)
+    // Екранні координати креслення → px SVG: по горизонталі центр сцени лишається на місці під час повороту
+    function toSvg(p) { return [fit.offX + (p[0] - c0[0]) * s, vf.t + (p[1] - c0[1] - fit.minY) * s]; }
     function mapPts(pts) { return pts.map(toSvg); }
 
     var r = PondGeo.render(scene, cam, (opts.fast ? STEP_PX_FAST : STEP_PX) / s);
@@ -217,7 +242,7 @@ var Sketch3D = (function () {
       items.push({ tag: 'text', attrs: { x: a[0].toFixed(1), y: (a[1] + lb.base).toFixed(1), 'text-anchor': 'middle', 'class': 'sk-label s3-label' }, text: BIO_TEXT });
     }
 
-    var h = Math.round(fit.h);
+    var h = Math.round(vf.h);
     return { viewBox: '0 0 ' + Math.round(box.w) + ' ' + h, height: h, items: items };
   }
 
@@ -238,7 +263,7 @@ var Sketch3D = (function () {
     return model;
   }
 
-  return { build: build, draw: draw, layout: layout, bioLabelAnchor: bioLabelAnchor, ELEVATION: ELEVATION, FIT_VIEWS: FIT_VIEWS };
+  return { build: build, draw: draw, layout: layout, viewFit: viewFit, bioLabelAnchor: bioLabelAnchor, ELEVATION: ELEVATION, FIT_VIEWS: FIT_VIEWS };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Sketch3D;

@@ -37,9 +37,19 @@ var Sketch3DTests = (function () {
         var hasLabel = m.items.some(function (it) { return it.tag === 'text' && it.text === 'біоплато'; });
         return hasLabel && sc.pits.length === 1 && !!S.bioLabelAnchor(sc, G.camera(135, S.ELEVATION)) && m.height <= 360;
       }],
-      ['Масштаб і висота однакові в усіх 4 ракурсах (схема не стрибає)', function () {
-        var vb = [135, 225, 315, 45].map(function (az) { return model(az).viewBox; });
-        return vb.every(function (v) { return v === vb[0]; });
+      ['Масштаб спільний для 4 ракурсів; висота — своя для ракурсу (без порожнечі), не більша за спільну (D57)', function () {
+        var o = {}; for (var k in pond) o[k] = pond[k];
+        o.box = { w: 360, hMax: 360 }; o.avoid = avoid; o.fs = 1;
+        var fit = S.layout(o), hs = fit.views.map(function (v) { return v.h; });
+        var sameAsModel = fit.views.every(function (v) { return model(v.az).height === Math.round(v.h); });
+        return sameAsModel && hs.every(function (h) { return h <= fit.h + 1e-6; }) &&
+          Math.min.apply(null, hs) < Math.max.apply(null, hs) - 1;   // біоплато з одного боку — ракурси різної висоти
+      }],
+      ['Висота між ракурсами змінюється плавно: посередині повороту — між висотами сусідніх ракурсів', function () {
+        var o = {}; for (var k in pond) o[k] = pond[k];
+        o.box = { w: 360, hMax: 360 }; o.avoid = avoid; o.fs = 1;
+        var fit = S.layout(o), a = S.viewFit(fit, 135).h, b = S.viewFit(fit, 225).h, mid = S.viewFit(fit, 180).h;
+        return Math.abs(mid - (a + b) / 2) < 1e-6 && Math.abs(S.viewFit(fit, 45 + 360).h - S.viewFit(fit, 45).h) < 1e-9;
       }],
       ['Лінії креслення не заходять під кнопки й підпис, висота ≤ hMax', function () {
         return [135, 225, 315, 45].every(function (az) {
@@ -52,9 +62,12 @@ var Sketch3DTests = (function () {
         });
       }],
       ['Альбомна орієнтація: широкий блок — схема займає висоту, а не ширину', function () {
-        var m = model(135, { w: 700, hMax: 330 });
+        var o = {}; for (var k in pond) o[k] = pond[k];
+        o.box = { w: 700, hMax: 330 }; o.avoid = avoid; o.fs = 1;
+        var fit = S.layout(o), m = model(135, { w: 700, hMax: 330 });
         var xs = linePoints(m).map(function (p) { return p[0]; });
-        return m.height <= 330 && m.height > 300 && Math.max.apply(null, xs) - Math.min.apply(null, xs) < 650;
+        // Найвищий ракурс займає висоту, решта — не вищі; по ширині лишається запас
+        return fit.h <= 330 && fit.h > 300 && m.height <= 330 && Math.max.apply(null, xs) - Math.min.apply(null, xs) < 650;
       }]
     ];
   }

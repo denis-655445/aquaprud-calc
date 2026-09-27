@@ -629,24 +629,26 @@
     $('sketch').setAttribute('aria-label', is3d ? 'Схема ставка в 3D, ракурс ' + (service.scene.view + 1) + ' з 4' : 'Схема ставка, вид зверху');
     var dims = m.L > 0 && m.W > 0 && m.D > 0;
     $('sceneCaption').hidden = !(is3d && dims);
+    // Підпис розмірів — до вимірювання кнопок: порожній підпис має нульовий розмір і креслення налізло б на нього
+    if (is3d && dims) {
+      $('sceneCaption').textContent = Format.qty(m.L) + ' × ' + Format.qty(m.W) + ' м, глибина ' + Format.qty(m.D) + ' м' +
+        (state.inputs.shape === 'custom' ? ' (форма умовна)' : '');
+    }
+    if (!fromAnim || !sceneBox) {
+      // 1. Розмір блока схеми (2D і 3D, D57): на всю ширину; висота — до ширини блока (портрет) або до висоти екрана (альбом)
+      var bw = $('scene').clientWidth, vh = viewportHeight();
+      var landscape = window.matchMedia('(orientation: landscape) and (max-height: 500px)').matches;
+      sceneBox = { box: { w: bw, hMax: Math.max(160, landscape ? vh - 24 : Math.min(bw, 0.62 * vh)) }, avoid: sceneAvoid() };
+    }
     if (!is3d) {
       tweenScene = false; shownFit = null; fitTween = null;   // перехід масштабу — лише для 3D
-      UI.drawSketch($('sketch'), state.inputs.shape, m, sketchOverlay(m), { side: state.inputs.bioSide, joined: service.bioJoin });
+      UI.drawSketch($('sketch'), state.inputs.shape, m, sketchOverlay(m), { side: state.inputs.bioSide, joined: service.bioJoin },
+        { box: sceneBox.box, avoid: sceneBox.avoid, fs: Number(service.fontScale) || 1 });
       return;
     }
 
     if (sceneAz === null) sceneAz = VIEW_AZ[service.scene.view];
     $('sceneDots').querySelectorAll('i').forEach(function (d, i) { d.classList.toggle('is-on', i === service.scene.view); });
-    if (dims) {
-      $('sceneCaption').textContent = Format.qty(m.L) + ' × ' + Format.qty(m.W) + ' м, глибина ' + Format.qty(m.D) + ' м' +
-        (state.inputs.shape === 'custom' ? ' (форма умовна)' : '');
-    }
-    if (!fromAnim || !sceneBox) {
-      // 1. Розмір блока схеми: на всю ширину; висота — до ширини блока (портрет) або до висоти екрана (альбом)
-      var w = $('scene').clientWidth, vh = viewportHeight();
-      var landscape = window.matchMedia('(orientation: landscape) and (max-height: 500px)').matches;
-      sceneBox = { box: { w: w, hMax: Math.max(160, landscape ? vh - 24 : Math.min(w, 0.62 * vh)) }, avoid: sceneAvoid() };
-    }
     var bioDepth = Calc.num(catalog.settings.bio_depth_m);
     var o = {
       shape: state.inputs.shape, L: m.L, W: m.W, D: m.D,
@@ -677,8 +679,12 @@
   var tweenScene = false, fitTween = null, shownFit = null;
   function lerpFit(a, b, e) {
     var l = function (x, y) { return x + (y - x) * e; };
+    // views — зсув і висота кожного ракурсу (D57): переходять плавно разом з масштабом
+    var views = (a.views || []).length === (b.views || []).length ? (b.views || []).map(function (v, i) {
+      return { az: v.az, t: l(a.views[i].t, v.t), h: l(a.views[i].h, v.h) };
+    }) : b.views;
     return { s: l(a.s, b.s), offX: l(a.offX, b.offX), t: l(a.t, b.t), h: l(a.h, b.h), minY: l(a.minY, b.minY),
-             center: [l(a.center[0], b.center[0]), l(a.center[1], b.center[1])] };
+             center: [l(a.center[0], b.center[0]), l(a.center[1], b.center[1])], views: views };
   }
   function tweenFrame() {
     if (!fitTween) return;
