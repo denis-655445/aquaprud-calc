@@ -1566,25 +1566,45 @@
     box.hidden = false;
   }
 
+  // Банер під заголовком (v0.8.0): прайс зі збереженої копії і / або помилки, знайдені в таблиці (Catalog.fromSheets)
+  function showLoadNote(res) {
+    var box = $('loadNote'), parts = [];
+    if (res.source === 'cache') {
+      var d = new Date(res.savedAt), p2 = function (n) { return (n < 10 ? '0' : '') + n; };
+      parts.push('Прайс не оновлено (' + res.reason + '). Ціни — зі збереженого ' +
+        p2(d.getDate()) + '.' + p2(d.getMonth() + 1) + ' о ' + p2(d.getHours()) + ':' + p2(d.getMinutes()) + '.');
+    }
+    var w = res.catalog.warnings || [];
+    if (w.length) parts.push('Помилки в прайсі (' + w.length + '): ' + w.slice(0, 3).join('; ') + (w.length > 3 ? '; …' : '') +
+      ' (таблиця: меню Aquaprud → Перевірити прайс).');
+    box.textContent = parts.join(' ');
+    box.hidden = !parts.length;
+  }
+
   // ---------- Запуск ----------
   function init() {
     bindDoubleTapGuard();
     bindRotation();
     setupTelegram();
-    Api.loadCatalog().then(function (cat) {
-      catalog = cat;
+    Api.loadCatalog().then(function (res) {
+      var cat = catalog = res.catalog;
+      showLoadNote(res);                                  // збережена копія / помилки в прайсі (v0.8.0)
       buildForm();
       restoreDraft();
       validateIds();
       applyTheme();                                      // тема з чернетки (у <head> — те саме, до першого малювання)
       syncForm();
       bindEvents();
-      $('footer').textContent = 'Версія ' + CONFIG.APP_VERSION + '. Каталог ' + cat.version + '.';
+      $('footer').textContent = 'Версія ' + CONFIG.APP_VERSION + '. Каталог ' + cat.version +
+        (res.source === 'sample' ? ' (тестовий)' : res.source === 'cache' ? ' (збережений)' : '') + '.';
       $('app').hidden = false;
       $('totalBar').hidden = false;
       recalc();
     }).catch(function (err) {
-      showError('Не вдалося завантажити прайс: ' + err.message + '. Перевірте інтернет і відкрийте застосунок ще раз.');
+      $('loadNote').hidden = true;
+      // Доступ (auth) — інтернет тут ні до чого; мережа / сервер — радимо перевірити зв'язок
+      showError(err.kind === 'auth' ? err.message + '.'
+        : 'Не вдалося завантажити прайс: ' + err.message + '. Перевірте інтернет і відкрийте застосунок ще раз.');
     });
   }
 

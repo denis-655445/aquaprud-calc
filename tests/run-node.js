@@ -16,17 +16,27 @@ var Sketch3DTests = require('./sketch3d.tests.js');
 var UI = require('../miniapp/js/ui.js');           // лише чиста функція fitPlan (розкладка 2D), DOM не потрібен
 var Plan2DTests = require('./plan2d.tests.js');
 var SlopeTests = require('./slope.tests.js');
+var Auth = require('../core/auth.js');             // A3 (v0.8.0): перевірка initData
+var CatalogCore = require('../core/catalog.js');   // A3: каталог з рядків таблиці
+var Sha256 = require('./sha256.js');               // порт HMAC для тестів (у браузері — той самий)
+var SHEET = require('./fixtures/sheet.sample.js');
+var AuthTests = require('./auth.tests.js');
+var CatalogTests = require('./catalog.tests.js');
+var GasTests = require('./gas.tests.js');          // лише Node: адаптер Apps Script з імітацією сервісів Google
 
 // Налаштування для тестів укосу: запас плівки 0,5 м, овал — π/4
 var SLOPE_SETTINGS = { film_margin_m: 0.5, shape_k_oval: 0.785, bio_depth_m: 0.3 };
 
-// Ядро розрахунку + геометрія 3D-схеми + сходинки + масштаб 3D + розкладка 2D + укіс
+// Ядро розрахунку + геометрія 3D-схеми + сходинки + масштаб 3D + розкладка 2D + укіс + доступ, каталог, адаптер Apps Script
 var results = CalcTests.run(Calc, Format, SAMPLE)
   .concat(PondGeoTests.run(PondGeo))
   .concat(StairsTests.run(Stairs, Calc))
   .concat(Sketch3DTests.run(PondGeo, Sketch3D))
   .concat(Plan2DTests.run(UI))
-  .concat(SlopeTests.run(Slope, Calc, PondGeo, SLOPE_SETTINGS));
+  .concat(SlopeTests.run(Slope, Calc, PondGeo, SLOPE_SETTINGS))
+  .concat(AuthTests.run(Auth, Sha256))
+  .concat(CatalogTests.run(CatalogCore, Calc, SHEET))
+  .concat(GasTests.run(AuthTests, Sha256, SHEET));
 results.forEach(function (r) {
   console.log((r.ok ? 'OK   ' : 'FAIL ') + r.name + (r.error ? ' — ' + r.error : ''));
 });

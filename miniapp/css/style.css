@@ -84,6 +84,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* ===== Банери ===== */
 .banner { margin: 0 auto var(--gap); padding: 10px 12px; border-radius: var(--radius); font-size: calc(14px * var(--fs)); }
 .banner--error { background: var(--card); color: var(--danger); border: 1px solid var(--danger); }
+/* Інформаційний банер (v0.8.0): збережений прайс, помилки в таблиці */
+.banner--note { background: var(--card); color: var(--hint); border: 1px solid var(--line); }
 
 /* ===== Блоки ===== */
 .block { background: var(--card); border-radius: var(--radius); padding: 14px; margin-bottom: var(--gap); }
