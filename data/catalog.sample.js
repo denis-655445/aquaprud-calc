@@ -30,7 +30,19 @@ var SAMPLE_CATALOG = {
     labor_base: 'materials+equipment', // майстер (§11.6): роботи = % від матеріалів і обладнання
     markup_pct: 0,
     currency: 'грн',
-    estimate_prefix: 'AP'
+    estimate_prefix: 'AP',
+    // Сходинки (stairs_math §15)
+    shelf_depths_cm: '20;45;60',  // зони ставка (D34)
+    shelf_width_default_m: 0.4,   // оптимум 0,3–0,4 м
+    shelf_width_min_m: 0.3,       // W1
+    steps_max: 3,                 // MVP: до 4 рівнів з дном (D38)
+    platform_arc_k: 0.1,          // наше припущення (майстер)
+    deep_share_min_fish: 0.5,     // W2
+    deep_share_min_nofish: 0.33,
+    depth_min_fish_m: 1.2,        // W4
+    depth_min_nofish_m: 0.7,
+    arc_tolerance_m: 0.01,        // E4
+    raster_cell_m: 0.01           // точність видимих площ
   },
 
   // Поля позиції: id, category, name, unit, price, base, k, maxV_nofish, maxV_fish,

@@ -297,7 +297,31 @@
   }
 
   // ---------- 3. Схема ставка: 2D / 3D ----------
-  function drawScene() {
+  // Висота видимої області: у Telegram — стабільна висота Mini App, у браузері — висота вікна
+  function viewportHeight() {
+    return (inTelegram && tg.viewportStableHeight) || window.innerHeight;
+  }
+
+  // Прямокутники кнопок і підписів поверх схеми (px відносно блока схеми): креслення їх обходить.
+  // Верхні — відстань від верху (y1), нижні — висота від низу (h): низ блока рухається разом з висотою схеми
+  function sceneAvoid() {
+    var sc = $('scene').getBoundingClientRect(), out = { top: [], bottom: [] };
+    function rect(el) {
+      var r = el.getBoundingClientRect();
+      return { x0: Math.round(r.left - sc.left), x1: Math.round(r.right - sc.left), y1: Math.round(r.bottom - sc.top), h: Math.round(sc.bottom - r.top) };
+    }
+    [$('sceneCaption'), document.querySelector('.scene__mode')].forEach(function (el) {
+      if (!el.hidden) { var r = rect(el); out.top.push({ x0: r.x0, x1: r.x1, y1: r.y1 }); }
+    });
+    [$('sceneDots'), $('sceneNav')].forEach(function (el) {
+      if (!el.hidden) { var r = rect(el); out.bottom.push({ x0: r.x0, x1: r.x1, h: r.h }); }
+    });
+    return out;
+  }
+
+  // fromAnim = true — кадр анімації повороту: розміри блока й кнопок не змінились, не перемірюємо
+  var sceneBox = null;
+  function drawScene(fromAnim) {
     var m = lastMetrics;
     if (!m) return;
     var is3d = service.scene.mode === '3d';
@@ -306,18 +330,30 @@
     });
     $('sceneNav').hidden = !is3d;
     $('sceneDots').hidden = !is3d;
+    $('sketch').classList.toggle('is-3d', is3d);
     $('sketch').setAttribute('aria-label', is3d ? 'Схема ставка в 3D, ракурс ' + (service.scene.view + 1) + ' з 4' : 'Схема ставка, вид зверху');
+    var dims = m.L > 0 && m.W > 0 && m.D > 0;
+    $('sceneCaption').hidden = !(is3d && dims);
     if (!is3d) { UI.drawSketch($('sketch'), state.inputs.shape, m); return; }
 
     if (sceneAz === null) sceneAz = VIEW_AZ[service.scene.view];
     $('sceneDots').querySelectorAll('i').forEach(function (d, i) { d.classList.toggle('is-on', i === service.scene.view); });
+    if (dims) {
+      $('sceneCaption').textContent = Format.qty(m.L) + ' × ' + Format.qty(m.W) + ' м, глибина ' + Format.qty(m.D) + ' м' +
+        (state.inputs.shape === 'custom' ? ' (форма умовна)' : '');
+    }
+    if (!fromAnim || !sceneBox) {
+      // 1. Розмір блока схеми: на всю ширину; висота — до ширини блока (портрет) або до висоти екрана (альбом)
+      var w = $('scene').clientWidth, vh = viewportHeight();
+      var landscape = window.matchMedia('(orientation: landscape) and (max-height: 500px)').matches;
+      sceneBox = { box: { w: w, hMax: Math.max(160, landscape ? vh - 24 : Math.min(w, 0.62 * vh)) }, avoid: sceneAvoid() };
+    }
     var bioDepth = Calc.num(catalog.settings.bio_depth_m);
     Sketch3D.draw($('sketch'), {
       shape: state.inputs.shape, L: m.L, W: m.W, D: m.D,
       bio: m.hasBio ? { L: m.Lb, W: m.Wb, depth: bioDepth } : null,
-      azimuth: sceneAz,
-      caption: Format.qty(m.L) + ' × ' + Format.qty(m.W) + ' м, глибина ' + Format.qty(m.D) + ' м' +
-        (state.inputs.shape === 'custom' ? ' (форма умовна)' : '')
+      azimuth: sceneAz, views: VIEW_AZ,
+      box: sceneBox.box, avoid: sceneBox.avoid, fs: Number(service.fontScale) || 1
     });
   }
 
@@ -334,7 +370,7 @@
     var to = from + d;
     var id = ++animId;
     var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (reduce) { sceneAz = ((to % 360) + 360) % 360; drawScene(); return; }
+    if (reduce) { sceneAz = ((to % 360) + 360) % 360; drawScene(true); return; }
     var t0 = null;
     function frame(now) {
       if (id !== animId) return;                 // почався новий поворот — цей зупиняємо
@@ -342,7 +378,7 @@
       var k = Math.min(1, (now - t0) / 320);
       var ease = 1 - Math.pow(1 - k, 3);         // швидкий старт, м'яке гальмування
       sceneAz = from + (to - from) * ease;
-      drawScene();
+      drawScene(true);
       if (k < 1) requestAnimationFrame(frame); else sceneAz = ((to % 360) + 360) % 360;
     }
     requestAnimationFrame(frame);
@@ -360,15 +396,14 @@
     document.querySelectorAll('[data-rotate]').forEach(function (b) {
       b.addEventListener('click', function () { rotateView(Number(b.dataset.rotate)); });
     });
-    // Свайп по схемі вліво / вправо — те саме, що стрілки (вертикальна прокрутка сторінки не заважає)
-    var sx = 0, sy = 0;
-    $('scene').addEventListener('touchstart', function (e) {
-      sx = e.touches[0].clientX; sy = e.touches[0].clientY;
-    }, { passive: true });
-    $('scene').addEventListener('touchend', function (e) {
-      var t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
-      if (Math.abs(dx) > 40 && Math.abs(dx) > 1.5 * Math.abs(dy)) rotateView(dx < 0 ? 1 : -1);
-    }, { passive: true });
+    // 2. Свайп прибрано (v0.4.1): ракурс змінюють лише стрілки ‹ ›, тож прокрутка сторінки не повертає схему
+    // Поворот телефона / зміна розміру вікна: блок схеми змінив розмір — перемальовуємо (раз на кадр)
+    var resizeQueued = false;
+    window.addEventListener('resize', function () {
+      if (resizeQueued) return;
+      resizeQueued = true;
+      requestAnimationFrame(function () { resizeQueued = false; drawScene(); });
+    });
   }
 
   // Будь-яка зміна: зберегти чернетку і перерахувати
@@ -570,6 +605,7 @@
       b.addEventListener('click', function () {
         service.fontScale = Number(b.dataset.font);
         applyFontScale();
+        drawScene();
         haptic('select');
         saveDraft();
       });
@@ -807,14 +843,10 @@
     }, { passive: true });
   }
 
-  // ---------- 10. Без зуму ----------
-  // iOS ігнорує частину заборон з meta viewport, тому додатково блокуємо жест «щипок».
-  // Подвійне натискання вимкнене в CSS (touch-action), тож швидкі «+/−» рахуються як окремі натискання
-  function disableZoom() {
-    ['gesturestart', 'gesturechange', 'gestureend'].forEach(function (ev) {
-      document.addEventListener(ev, function (e) { e.preventDefault(); }, { passive: false });
-    });
-  }
+  // ---------- 5. Масштаб (v0.4.1, D45) ----------
+  // Щипок дозволено (meta viewport без user-scalable=no), а подвійне натискання вимкнене в CSS:
+  // touch-action: manipulation — тож швидкі «+/−» рахуються як окремі натискання і не збільшують екран.
+  // Блок жесту gesturestart, що забороняв щипок у v0.2–v0.4, прибрано.
 
   function showError(text) {
     var box = $('loadError');
@@ -824,7 +856,6 @@
 
   // ---------- Запуск ----------
   function init() {
-    disableZoom();
     setupTelegram();
     Api.loadCatalog().then(function (cat) {
       catalog = cat;
@@ -833,7 +864,6 @@
       validateIds();
       syncForm();
       bindEvents();
-      $('testBanner').hidden = !cat.is_test;
       $('footer').textContent = 'Версія ' + CONFIG.APP_VERSION + '. Каталог ' + cat.version + '.';
       $('app').hidden = false;
       $('totalBar').hidden = false;

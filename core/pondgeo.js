@@ -288,12 +288,53 @@ var PondGeo = (function () {
     return b;
   }
 
+  // ---------- Габарит креслення для масштабу (v0.4.1) ----------
+
+  // Центр сцени в плані — середина габариту котлованів (навколо нього повертаємо схему)
+  function sceneCenter(scene) {
+    var xs = [], ys = [];
+    scene.pits.forEach(function (pit) { pit.outline.forEach(function (p) { xs.push(p[0]); ys.push(p[1]); }); });
+    return [(Math.min.apply(null, xs) + Math.max.apply(null, xs)) / 2, (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2];
+  }
+
+  // Проєкції всіх вершин креслення (земля, край і дно кожного котлована) — з них складається силует
+  function projectedPoints(scene, cam) {
+    var out = [];
+    if (scene.ground) scene.ground.forEach(function (p) { out.push(project(cam, p[0], p[1], 0)); });
+    scene.pits.forEach(function (pit) {
+      pit.outline.forEach(function (p) {
+        out.push(project(cam, p[0], p[1], 0));
+        if (pit.depth > 0) out.push(project(cam, p[0], p[1], -pit.depth));
+      });
+    });
+    return out;
+  }
+
+  // Опукла оболонка точок (алгоритм «монотонного ланцюга»): силует креслення без внутрішніх точок
+  function convexHull(pts) {
+    var p = pts.slice().sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; });
+    if (p.length < 3) return p;
+    function turn(o, a, b) { return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]); }
+    var lower = [], upper = [];
+    p.forEach(function (q) {
+      while (lower.length >= 2 && turn(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop();
+      lower.push(q);
+    });
+    for (var i = p.length - 1; i >= 0; i--) {
+      while (upper.length >= 2 && turn(upper[upper.length - 2], upper[upper.length - 1], p[i]) <= 0) upper.pop();
+      upper.push(p[i]);
+    }
+    lower.pop(); upper.pop();              // крайні точки повторюються в обох ланцюгах
+    return lower.concat(upper);
+  }
+
   return {
     outline: outline, rect: rect, ellipse: ellipse, roundedRect: roundedRect,
     signedArea: signedArea, inside: inside,
     buildScene: buildScene, groundAt: groundAt,
     camera: camera, project: project, isVisible: isVisible,
-    sceneLines: sceneLines, render: render, stableBounds: stableBounds
+    sceneLines: sceneLines, render: render, stableBounds: stableBounds,
+    sceneCenter: sceneCenter, projectedPoints: projectedPoints, convexHull: convexHull
   };
 })();
 

@@ -73,6 +73,24 @@ var Calc = (function () {
     return 'Матеріали';
   }
 
+  // ---------- Сходинки (A2.1): модуль core/stairs.js підключається необов'язково ----------
+  // У браузері й Apps Script Stairs — глобальна змінна; у Node.js — Calc.useStairs(require('./stairs.js'))
+  var stairsModule = null;
+  function useStairs(mod) { stairsModule = mod; }
+  function getStairs() { return stairsModule || (typeof Stairs !== 'undefined' ? Stairs : null); }
+
+  // Один і той самий розрахунок сходинок потрібен кілька разів за перерахунок — запам'ятовуємо останній
+  var stairsMemo = { key: null, value: null };
+  function evaluateSteps(inp, s, L, W, D) {
+    var St = getStairs();
+    if (!St || !inp.steps || !inp.steps.length) return null;
+    var key = JSON.stringify([inp.shape, L, W, D, !!inp.fish, inp.steps, s]);
+    if (stairsMemo.key !== key) {
+      stairsMemo = { key: key, value: St.evaluate({ shape: inp.shape, L: L, W: W, D: D, fish: !!inp.fish, steps: inp.steps }, s) };
+    }
+    return stairsMemo.value;
+  }
+
   // Мінімальна перевірка: без трьох розмірів рахувати нічого
   function isValidInputs(inp) {
     return num(inp.L) > 0 && num(inp.W) > 0 && num(inp.D) > 0;
@@ -97,7 +115,15 @@ var Calc = (function () {
       P = 2 * (L + W);
     }
 
-    var V = S * D * num(s.depth_profile_k, 1);
+    // Об'єм: без сходинок — S·D·k (v4); зі сходинками — k·(S_глиб·D + Σ S_vis·h), stairs_math §10.1 (D35).
+    // Шари з помилкою в об'єм не входять (помилка блокує збереження)
+    var steps = evaluateSteps(inp, s, L, W, D);
+    var Svis = 0, Vsteps = 0;
+    if (steps && steps.available) {
+      steps.layers.forEach(function (l) { if (l.valid) { Svis += l.visible; Vsteps += l.visible * l.depth; } });
+    }
+    var Sdeep = Math.max(0, S - Svis);
+    var V = (Sdeep * D + Vsteps) * num(s.depth_profile_k, 1);
 
     // Біоплато рахуємо, лише якщо увімкнено і задано обидва розміри
     var bioD = num(s.bio_depth_m);
@@ -129,6 +155,7 @@ var Calc = (function () {
 
     return {
       L: L, W: W, D: D, S: S, P: P, V: V, Vb: Vb, Vtotal: Vtotal,
+      steps: steps, Sdeep: Sdeep, Svis: Svis,
       hasBio: hasBio, Lb: Lb, Wb: Wb,
       filmArea: filmArea, bioFilmArea: bioFilmArea, filmAreaTotal: filmArea + bioFilmArea,
       excavation: Vtotal * num(s.excavation_k, 1),
@@ -216,6 +243,13 @@ var Calc = (function () {
       lines.push({
         id: item.id, name: item.name + (suffix || ''), unit: item.unit,
         qty: q, price: price, sum: money(q * price), group: groupOf(item)
+      });
+    }
+
+    // Сходинки: помилки (E…) і попередження (W…) з номером сходинки
+    if (m.steps) {
+      m.steps.errors.concat(m.steps.warnings).forEach(function (e) {
+        warnings.push((e.step ? 'Сходинка ' + e.step + ': ' : 'Сходинки: ') + e.text);
       });
     }
 
@@ -339,7 +373,7 @@ var Calc = (function () {
     isActive: isActive, findItem: findItem, activeItems: activeItems,
     isValidInputs: isValidInputs, computeMetrics: computeMetrics,
     pickByVolume: pickByVolume, pumpFlowAt: pumpFlowAt, recommendPump: recommendPump,
-    recommend: recommend, buildEstimate: buildEstimate, GROUPS: GROUPS
+    recommend: recommend, buildEstimate: buildEstimate, GROUPS: GROUPS, useStairs: useStairs
   };
 })();
 

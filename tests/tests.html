@@ -12,21 +12,26 @@
   </style>
 </head>
 <body>
-  <h1>Тести ядра розрахунку і геометрії</h1>
+  <h1>Тести ядра: розрахунок, геометрія, сходинки</h1>
   <p id="summary">Запуск…</p>
   <ul id="list"></ul>
 
   <!-- Ті самі файли ядра, що й у застосунку -->
-  <script src="../core/calc.js?v=4"></script>
-  <script src="../core/format.js?v=4"></script>
-  <script src="../core/pondgeo.js?v=4"></script>
-  <script src="../data/catalog.sample.js?v=4"></script>
-  <script src="calc.tests.js?v=4"></script>
-  <script src="pondgeo.tests.js?v=4"></script>
+  <script src="../core/calc.js?v=5"></script>
+  <script src="../core/format.js?v=5"></script>
+  <script src="../core/pondgeo.js?v=5"></script>
+  <script src="../core/stairs.js?v=5"></script>
+  <script src="../miniapp/js/sketch3d.js?v=5"></script>
+  <script src="../data/catalog.sample.js?v=5"></script>
+  <script src="calc.tests.js?v=5"></script>
+  <script src="pondgeo.tests.js?v=5"></script>
+  <script src="stairs.core.tests.js?v=5"></script>
+  <script src="sketch3d.tests.js?v=5"></script>
   <script>
     // Запускаємо тести і показуємо результат списком
     // Ядро розрахунку (з тестовим каталогом) + геометрія 3D-схеми
-    var results = CalcTests.run(Calc, Format, SAMPLE_CATALOG).concat(PondGeoTests.run(PondGeo));
+    var results = CalcTests.run(Calc, Format, SAMPLE_CATALOG).concat(PondGeoTests.run(PondGeo))
+      .concat(StairsTests.run(Stairs, Calc)).concat(Sketch3DTests.run(PondGeo, Sketch3D));
     var list = document.getElementById('list');
     results.forEach(function (r) {
       var li = document.createElement('li');

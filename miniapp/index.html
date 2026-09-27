@@ -2,14 +2,14 @@
 <html lang="uk">
 <head>
   <meta charset="utf-8">
-  <!-- width=device-width — адаптація під будь-який екран; maximum-scale=1 і user-scalable=no — без зуму -->
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <!-- width=device-width — адаптація під будь-який екран. Щипок дозволено (D45), подвійне натискання вимкнене в CSS -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="format-detection" content="telephone=no">
   <title>Aquaprud — кошторис ставка</title>
   <!-- SDK Telegram Mini Apps: дає Telegram.WebApp (тема, кнопки, вібровідгук) -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <!-- ?v=N — версія файлу: змінюємо при кожному оновленні, бо Telegram кешує Mini App -->
-  <link rel="stylesheet" href="css/style.css?v=4">
+  <link rel="stylesheet" href="css/style.css?v=5">
 </head>
 <body>
   <header class="head">
@@ -17,9 +17,6 @@
     <p class="head__sub">Aquaprud</p>
   </header>
 
-  <div id="testBanner" class="banner banner--test" hidden>
-    Тестовий каталог: ціни й норми вигадані для перевірки. Такий кошторис клієнту не надсилайте.
-  </div>
   <div id="loadError" class="banner banner--error" hidden></div>
 
   <main id="app" hidden>
@@ -36,6 +33,8 @@
       <!-- Схема ставка: 2D (вид зверху) або 3D (4 ракурси по діагоналі) -->
       <div id="scene" class="scene">
         <svg id="sketch" class="sketch" viewBox="0 0 320 178" role="img" aria-label="Схема ставка"></svg>
+        <!-- Розміри в 3D — поверх схеми зліва вгорі; креслення його обходить (sketch3d.js) -->
+        <p id="sceneCaption" class="scene__caption" hidden></p>
         <div class="seg scene__mode" role="group" aria-label="Вид схеми">
           <button type="button" class="seg__btn" data-scene="2d">2D</button>
           <button type="button" class="seg__btn" data-scene="3d">3D</button>
@@ -271,14 +270,15 @@
   </div>
 
   <!-- Порядок важливий: конфіг → дані → ядро → API → інтерфейс → запуск -->
-  <script src="js/config.js?v=4"></script>
-  <script src="../data/catalog.sample.js?v=4"></script>
-  <script src="../core/calc.js?v=4"></script>
-  <script src="../core/format.js?v=4"></script>
-  <script src="../core/pondgeo.js?v=4"></script>
-  <script src="js/api.js?v=4"></script>
-  <script src="js/ui.js?v=4"></script>
-  <script src="js/sketch3d.js?v=4"></script>
-  <script src="js/app.js?v=4"></script>
+  <script src="js/config.js?v=5"></script>
+  <script src="../data/catalog.sample.js?v=5"></script>
+  <script src="../core/calc.js?v=5"></script>
+  <script src="../core/format.js?v=5"></script>
+  <script src="../core/pondgeo.js?v=5"></script>
+  <script src="../core/stairs.js?v=5"></script>
+  <script src="js/api.js?v=5"></script>
+  <script src="js/ui.js?v=5"></script>
+  <script src="js/sketch3d.js?v=5"></script>
+  <script src="js/app.js?v=5"></script>
 </body>
 </html>

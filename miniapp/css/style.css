@@ -11,8 +11,6 @@
   --water: #13707a;          /* глибока вода: схема ставка і «рекомендовано» */
   --water-fill: rgba(19, 112, 122, 0.16);
   --ground: #8a7a55;         /* земля навколо ставка на 3D-схемі */
-  --test-bg: #fff3c4;
-  --test-text: #5c4300;
 
   --bg: var(--tg-theme-secondary-bg-color, var(--fb-bg));
   --card: var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, var(--fb-card)));
@@ -39,17 +37,15 @@
     --water: #5cc0c9;
     --water-fill: rgba(92, 192, 201, 0.18);
     --ground: #b8a67c;
-    --test-bg: #3a3212;
-    --test-text: #f3dc8a;
   }
 }
 /* Темна тема в Telegram: клас ставить app.js за Telegram.WebApp.colorScheme */
-html.tg-dark { --water: #5cc0c9; --water-fill: rgba(92, 192, 201, 0.18); --ground: #b8a67c; --test-bg: #3a3212; --test-text: #f3dc8a; }
+html.tg-dark { --water: #5cc0c9; --water-fill: rgba(92, 192, 201, 0.18); --ground: #b8a67c; }
 
 /* ===== База ===== */
 * { box-sizing: border-box; }
-/* 10. Без зуму: дозволяємо лише прокрутку — ні подвійного натискання, ні «щипка» */
-html { -webkit-text-size-adjust: 100%; touch-action: pan-x pan-y; }
+/* 5. Масштаб (D45): прокрутка і щипок дозволені, подвійне натискання — ні (швидкі «+/−» не збільшують екран) */
+html { -webkit-text-size-adjust: 100%; touch-action: manipulation; }
 button, label, input, select, textarea { touch-action: manipulation; }
 body {
   margin: 0;
@@ -73,7 +69,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 /* ===== Банери ===== */
 .banner { margin: 0 auto var(--gap); padding: 10px 12px; border-radius: var(--radius); font-size: calc(14px * var(--fs)); }
-.banner--test { background: var(--test-bg); color: var(--test-text); }
 .banner--error { background: var(--card); color: var(--danger); border: 1px solid var(--danger); }
 
 /* ===== Блоки ===== */
@@ -134,6 +129,13 @@ select.input {
 /* ===== Схема ставка ===== */
 .scene { position: relative; margin: 0 0 12px; }
 .sketch { display: block; width: 100%; height: auto; }
+/* 3D: висоту задає sketch3d.js (viewBox у px блока); під час повороту кут креслення може на мить вийти за край */
+.sketch.is-3d { overflow: visible; }
+/* Розміри ставка в 3D — зліва вгорі поверх схеми; ширина обмежена, щоб не залазити під 2D/3D */
+.scene__caption {
+  position: absolute; top: 8px; left: 2px; max-width: calc(100% - 130px); margin: 0;
+  color: var(--hint); font-size: calc(13px * var(--fs)); line-height: 1.3; font-variant-numeric: tabular-nums; pointer-events: none;
+}
 /* 2D / 3D — у кутку схеми, як на картах */
 .scene__mode { position: absolute; top: 0; right: 0; margin: 0; }
 .scene__mode .seg__btn { flex: none; min-width: 48px; min-height: 34px; padding: 4px 12px; }
@@ -157,7 +159,7 @@ select.input {
 .s3-line--rim { stroke-width: 2; }
 .s3-line--hidden { stroke-width: 1; stroke-dasharray: 4 3; stroke-linecap: butt; opacity: 0.6; }
 /* Підпис поверх ліній: обведення кольором картки, щоб текст не зливався з ребрами */
-.s3-label { paint-order: stroke; stroke: var(--card); stroke-width: 3px; stroke-linejoin: round; }
+.s3-label { font-size: calc(13px * var(--fs)); paint-order: stroke; stroke: var(--card); stroke-width: 3px; stroke-linejoin: round; }
 .sk-water { fill: var(--water-fill); stroke: var(--water); stroke-width: 2; }
 .sk-water--custom { stroke-dasharray: 6 4; }
 .sk-bio { fill: none; stroke: var(--water); stroke-width: 1.5; stroke-dasharray: 3 3; }
@@ -272,7 +274,7 @@ body.typing .totalbar { display: none; }
 @media (orientation: landscape) and (max-height: 500px) {
   .totalbar { display: none; }
   body { padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
-  .sketch { max-height: calc(var(--tg-viewport-stable-height, 100vh) - 24px); }
+  .sketch:not(.is-3d) { max-height: calc(var(--tg-viewport-stable-height, 100vh) - 24px); } /* 3D сам вміщається у висоту */
 }
 
 /* ===== Службова панель ===== */
