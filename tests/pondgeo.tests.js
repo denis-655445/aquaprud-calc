@@ -71,6 +71,13 @@ var PondGeoTests = (function () {
         var bio = sc.pits[1];
         return sc.pits.length === 2 && bio.outline[0][0] > 6 && G.groundAt(sc, [bio.outline[0][0] + 1, 2]) === -0.3;
       }],
+      ['Біоплато з 4 боків: Lб завжди від ставка, Wб уздовж сторони, по центру сторони', function () {
+        var bio = { L: 3, W: 1 }, L = 6, W = 4;
+        var r = G.bioRect(L, W, bio, 'right'), b = G.bioRect(L, W, bio, 'bottom'), l = G.bioRect(L, W, bio, 'left'), t = G.bioRect(L, W, bio, 'top');
+        return r[0] > L && r[2] === 3 && r[3] === 1 && near(r[1] + r[3] / 2, W / 2) &&
+          b[1] > W && b[2] === 1 && b[3] === 3 && near(b[0] + b[2] / 2, L / 2) &&
+          l[0] + l[2] < 0 && t[1] + t[3] < 0 && G.BIO_SIDES.join() === 'right,bottom,left,top';
+      }],
       ['Рівні (A2.1): кільце-полиця з діркою — у дірці дно, на полиці її глибина', function () {
         var sc = G.buildScene({ shape: 'rect', L: 6, W: 4, D: 1.5,
           levels: [{ poly: G.rect(0, 0, 6, 4), holes: [G.rect(1, 1, 4, 2)], depth: 0.3 }] });

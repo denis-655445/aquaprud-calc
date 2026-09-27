@@ -35,7 +35,7 @@ var SAMPLE_CATALOG = {
     shelf_depths_cm: '20;45;60',  // зони ставка (D34)
     shelf_width_default_m: 0.4,   // оптимум 0,3–0,4 м
     shelf_width_min_m: 0.3,       // W1
-    steps_max: 3,                 // MVP: до 4 рівнів з дном (D38)
+    steps_max: 4,                 // до 5 рівнів з дном (D38, v0.6.0)
     platform_arc_k: 0.1,          // наше припущення (майстер)
     deep_share_min_fish: 0.5,     // W2
     deep_share_min_nofish: 0.33,

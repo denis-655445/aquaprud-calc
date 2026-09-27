@@ -9,7 +9,7 @@
   <!-- SDK Telegram Mini Apps: дає Telegram.WebApp (тема, кнопки, вібровідгук) -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <!-- ?v=N — версія файлу: змінюємо при кожному оновленні, бо Telegram кешує Mini App -->
-  <link rel="stylesheet" href="css/style.css?v=6">
+  <link rel="stylesheet" href="css/style.css?v=7">
 </head>
 <body>
   <header class="head">
@@ -110,6 +110,16 @@
           <span class="switch__track" aria-hidden="true"></span>
           <span class="switch__text">Біоплато</span>
         </label>
+        <!-- Біоплато з увімкненим перемикачем: ‹ › переносять його на сусідню сторону ставка -->
+        <div id="bioSide" class="bio-side" hidden>
+          <button type="button" class="bio-side__btn" data-bioside="-1" aria-label="Перенести біоплато проти годинникової стрілки">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg>
+          </button>
+          <span id="bioSideLabel" class="bio-side__label" aria-live="polite">праворуч</span>
+          <button type="button" class="bio-side__btn" data-bioside="1" aria-label="Перенести біоплато за годинниковою стрілкою">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>
+          </button>
+        </div>
       </div>
       <!-- Плавне розкриття: висота анімується через CSS (клас is-open) -->
       <div id="bioFields" class="collapse">
@@ -316,15 +326,15 @@
   </div>
 
   <!-- Порядок важливий: конфіг → дані → ядро → API → інтерфейс → запуск -->
-  <script src="js/config.js?v=6"></script>
-  <script src="../data/catalog.sample.js?v=6"></script>
-  <script src="../core/calc.js?v=6"></script>
-  <script src="../core/format.js?v=6"></script>
-  <script src="../core/pondgeo.js?v=6"></script>
-  <script src="../core/stairs.js?v=6"></script>
-  <script src="js/api.js?v=6"></script>
-  <script src="js/ui.js?v=6"></script>
-  <script src="js/sketch3d.js?v=6"></script>
-  <script src="js/app.js?v=6"></script>
+  <script src="js/config.js?v=7"></script>
+  <script src="../data/catalog.sample.js?v=7"></script>
+  <script src="../core/calc.js?v=7"></script>
+  <script src="../core/format.js?v=7"></script>
+  <script src="../core/pondgeo.js?v=7"></script>
+  <script src="../core/stairs.js?v=7"></script>
+  <script src="js/api.js?v=7"></script>
+  <script src="js/ui.js?v=7"></script>
+  <script src="js/sketch3d.js?v=7"></script>
+  <script src="js/app.js?v=7"></script>
 </body>
 </html>

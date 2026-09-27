@@ -143,6 +143,17 @@ var Sketch3D = (function () {
    *          fs — множник розміру тексту }
    * Повертає { viewBox, height, items: [{ tag, attrs, text? }] }
    */
+  // Масштаб і розкладка для opts (з кешу, поки не змінились розміри) — app.js плавно переходить між ними
+  function layout(opts) {
+    var skey = JSON.stringify([opts.shape, opts.L, opts.W, opts.D, opts.bio]);
+    if (sceneCache.key !== skey || sceneCache.levels !== opts.levels) {
+      sceneCache = { key: skey, levels: opts.levels, scene: PondGeo.buildScene(opts) };
+    }
+    var key = JSON.stringify([opts.shape, opts.L, opts.W, opts.D, opts.bio, opts.box, opts.avoid, opts.fs, opts.views]);
+    if (cache.key !== key) cache = { key: key, fit: fitLayout(sceneCache.scene, opts) };
+    return cache.fit;
+  }
+
   function build(opts) {
     var items = [];
     var box = opts.box || { w: 320, hMax: 272 };
@@ -153,16 +164,10 @@ var Sketch3D = (function () {
       return { viewBox: '0 0 ' + box.w + ' ' + hh, height: hh, items: items };
     }
 
-    // Сцена не залежить від кута: під час повороту беремо ту саму (levels — той самий масив з app.js)
-    var skey = JSON.stringify([opts.shape, opts.L, opts.W, opts.D, opts.bio]);
-    if (sceneCache.key !== skey || sceneCache.levels !== opts.levels) {
-      sceneCache = { key: skey, levels: opts.levels, scene: PondGeo.buildScene(opts) };
-    }
-    var scene = sceneCache.scene;
-    // Масштаб не залежить від поточного кута — тож рахуємо його раз на розмір ставка й блока
-    var key = JSON.stringify([opts.shape, opts.L, opts.W, opts.D, opts.bio, box, opts.avoid, opts.fs, opts.views]);
-    if (cache.key !== key) cache = { key: key, fit: fitLayout(scene, opts) };
-    var fit = cache.fit, s = fit.s;
+    // Сцена й масштаб не залежать від кута: під час повороту беремо ті самі (кеш у layout).
+    // opts.fit — проміжний масштаб плавного переходу з app.js (біоплато ввімкнули / перенесли)
+    var target = layout(opts), scene = sceneCache.scene;
+    var fit = opts.fit || target, s = fit.s;
 
     var cam = PondGeo.camera(opts.azimuth, ELEVATION);
     var c0 = PondGeo.project(cam, fit.center[0], fit.center[1], 0);
@@ -231,7 +236,7 @@ var Sketch3D = (function () {
     return model;
   }
 
-  return { build: build, draw: draw, bioLabelAnchor: bioLabelAnchor, ELEVATION: ELEVATION, FIT_VIEWS: FIT_VIEWS };
+  return { build: build, draw: draw, layout: layout, bioLabelAnchor: bioLabelAnchor, ELEVATION: ELEVATION, FIT_VIEWS: FIT_VIEWS };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Sketch3D;

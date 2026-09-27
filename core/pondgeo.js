@@ -173,7 +173,21 @@ var PondGeo = (function () {
   }
 
   /*
-   * p = { shape, L, W, D, bio: { L, W, depth } | null, levels: [{ poly, holes, depth }] | undefined }
+   * Біоплато біля ставка (v0.6.0): side — 'right' | 'bottom' | 'left' | 'top' (за годинниковою від правого).
+   * Біоплато «обертається» навколо ставка: довжина Lб завжди йде від ставка, ширина Wб — уздовж його сторони.
+   * Повертає [x, y, ширина, висота] у координатах плану ставка; проміжок — умовний: max(0,5 м; 0,06·L).
+   */
+  var BIO_SIDES = ['right', 'bottom', 'left', 'top'];
+  function bioRect(L, W, bio, side) {
+    var gap = Math.max(0.5, 0.06 * L), bl = bio.L, bw = bio.W;
+    if (side === 'bottom') return [(L - bw) / 2, W + gap, bw, bl];
+    if (side === 'left') return [-gap - bl, (W - bw) / 2, bl, bw];
+    if (side === 'top') return [(L - bw) / 2, -gap - bl, bw, bl];
+    return [L + gap, (W - bw) / 2, bl, bw];                       // праворуч — як до v0.6.0
+  }
+
+  /*
+   * p = { shape, L, W, D, bio: { L, W, depth, side } | null, levels: [{ poly, holes, depth }] | undefined }
    * Котлован (pit): { id, outline, depth, levels } — levels: сходинки { poly, holes, depth, box } у координатах плану
    */
   function buildScene(p) {
@@ -186,10 +200,9 @@ var PondGeo = (function () {
     });
     var pits = [pond];
     if (p.bio && p.bio.L > 0 && p.bio.W > 0) {
-      // Біоплато праворуч від ставка по центру, як у 2D-схемі; проміжок — умовний
-      var gap = Math.max(0.5, 0.06 * p.L);
-      pits.push({ id: 'bio', outline: rect(p.L + gap, (p.W - p.bio.W) / 2, p.bio.L, p.bio.W),
-                  depth: Math.max(0, p.bio.depth || 0), levels: [] });
+      // Біоплато по центру вибраної сторони ставка, як у 2D-схемі
+      var br = bioRect(p.L, p.W, p.bio, p.bio.side);
+      pits.push({ id: 'bio', outline: rect(br[0], br[1], br[2], br[3]), depth: Math.max(0, p.bio.depth || 0), levels: [] });
     }
     // Ділянка землі навколо котлованів: на кресленні ставок читається як «яма», а не коробка
     var xs = [], ys = [];
@@ -551,7 +564,7 @@ var PondGeo = (function () {
     camera: camera, project: project, isVisible: isVisible,
     sceneLines: sceneLines, render: render, stableBounds: stableBounds,
     sceneCenter: sceneCenter, projectedPoints: projectedPoints, convexHull: convexHull,
-    simplifyRing: simplifyRing, levelGeometry: levelGeometry
+    simplifyRing: simplifyRing, levelGeometry: levelGeometry, bioRect: bioRect, BIO_SIDES: BIO_SIDES
   };
 })();
 

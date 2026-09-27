@@ -90,9 +90,9 @@ var StairsTests = (function () {
         return near(r.layers[0].visible, 3.0) && near(r.layers[1].visible, 1.0) && near(r.Sdeep, 14.0) &&
           near(St.waterVolume(r, 18, 1.5), 22.05) && r.errors.length === 0;
       }],
-      ['S6 Попередження E1: W3 (риба), без W2 (77,8 % глибини), без W4 (1,5 ≥ 1,2)', function () {
+      ['S6 Попередження E1: без W2 (77,8 % глибини), без W4 (1,5 ≥ 1,2), без W3 (прибрано у v1.3)', function () {
         var w = codes(St.evaluate(E1, SET).warnings);
-        return has(w, 'W3') && !has(w, 'W2') && !has(w, 'W4');
+        return !has(w, 'W3') && !has(w, 'W2') && !has(w, 'W4') && w.length === 0;
       }],
       ['S7 Глибина ≥ D — E7, шар не входить в об\'єм', function () {
         var r = St.evaluate({ shape: 'rect', L: 6, W: 3, D: 1.5, steps: [{ type: 'shelf', edge: 'straight', points: [1, 2, 3], wc: 0.5, depth_cm: 150 }] }, SET);
@@ -109,7 +109,7 @@ var StairsTests = (function () {
           { type: 'platform', edge: 'straight', points: [1, 2, 3, 5, 4], depth_cm: 20 }, // хорда #5 → #3: 13,5 м²
           { type: 'shelf', edge: 'straight', points: [3, 8, 6], wc: 0.2, depth_cm: 40 }] }, SET);
         var w = codes(r.warnings);
-        return has(w, 'W2') && has(w, 'W4') && has(w, 'W1') && !has(w, 'W3');
+        return has(w, 'W2') && has(w, 'W4') && has(w, 'W1');
       }],
       ['S10 W > L: ставок 3×6 рахується як 6×3 (схема повернута), точки плану в межах 3×6', function () {
         var a = St.evaluate({ shape: 'rect', L: 3, W: 6, D: 1.5, steps: E1.steps }, SET);

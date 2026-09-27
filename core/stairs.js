@@ -1,6 +1,6 @@
 /*
  * core/stairs.js — сходинки ставка (Про-режим, етап A2.1): прогони, полиця, платформа,
- * «Прямокутник від кута», видимі площі шарів (інтегрування рядками), перевірки E1–E11 / W1–W4.
+ * «Прямокутник від кута», видимі площі шарів (інтегрування рядками), перевірки E0–E11 / W1, W2, W4 (W3 прибрано, v1.3).
  * Математика — docs/stairs_math.md (v1.2); еталон, на якому перевірено числа, — tests/stairs_ref.js.
  * Чисті функції без DOM і без API платформ (D11): однаково працює в браузері, Apps Script і Node.js.
  *
@@ -15,7 +15,7 @@ var Stairs = (function () {
 
   // Значення «Налаштувань» за замовчуванням (stairs_math §15), якщо в прайсі їх немає
   var DEFAULTS = {
-    shelf_depths_cm: '20;45;60', shelf_width_default_m: 0.4, shelf_width_min_m: 0.3, steps_max: 3,
+    shelf_depths_cm: '20;45;60', shelf_width_default_m: 0.4, shelf_width_min_m: 0.3, steps_max: 4,
     platform_arc_k: 0.1, deep_share_min_fish: 0.5, deep_share_min_nofish: 0.33,
     depth_min_fish_m: 1.2, depth_min_nofish_m: 0.7, arc_tolerance_m: 0.01, raster_cell_m: 0.01
   };
@@ -35,7 +35,6 @@ var Stairs = (function () {
     E11: 'Прямокутник виходить за стінку: довжина й ширина мають бути більші за 0 і не більші за сторони ставка',
     W1: 'Полиця вужча за 30 см — рослини не вмістяться',
     W2: 'Глибока зона замала',
-    W3: 'Полиці допомагають чаплям полювати на рибу',
     W4: 'Ставок замілкий для зимівлі риби / стабільної екосистеми'
   };
 
@@ -625,7 +624,6 @@ var Stairs = (function () {
     });
     var shareMin = setting(settings, input.fish ? 'deep_share_min_fish' : 'deep_share_min_nofish');
     if (out.deepShare < shareMin - EPS) out.warnings.push({ code: 'W2', step: null, text: TEXT.W2 });
-    if (input.fish) out.warnings.push({ code: 'W3', step: null, text: TEXT.W3 });
     if (D < setting(settings, input.fish ? 'depth_min_fish_m' : 'depth_min_nofish_m') - EPS) {
       out.warnings.push({ code: 'W4', step: null, text: TEXT.W4 });
     }

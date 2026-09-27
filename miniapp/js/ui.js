@@ -67,7 +67,7 @@ var UI = (function () {
    *   layers: [{ rings: [[[x, y], …], …], rank, active, error }] — сходинки (rank 0 — наймілкіша);
    *   points: [{ id, p: [x, y], selected }] — точки активної сходинки, їх натискають (data-point).
    */
-  function drawSketch(svg, shape, m, overlay) {
+  function drawSketch(svg, shape, m, overlay, bioSide) {
     var NS = 'http://www.w3.org/2000/svg';
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     // Згори — смуга 40 px під перемикач 2D/3D; поле малювання те саме, що й раніше (320 × 150)
@@ -89,16 +89,22 @@ var UI = (function () {
     var ov = overlay || { layers: [], points: [] };
     var withPts = ov.points.length > 0;
 
-    // Поле малювання: ліворуч місце під підпис ширини, знизу — під підпис довжини (з точками — трохи більше)
-    var left = withPts ? 50 : 44, right = withPts ? 14 : 10, top = (withPts ? 14 : 8) + PAD_TOP, bottom = withPts ? 32 : 26, gapPx = 12;
+    // Біоплато — з вибраного боку (PondGeo.bioRect, те саме, що в 3D); підписи розмірів — на вільному боці
+    var side = m.hasBio ? (bioSide || 'right') : 'right';
+    var br = m.hasBio ? PondGeo.bioRect(m.L, m.W, { L: m.Lb, W: m.Wb }, side) : null;
+    var labelTop = side === 'bottom', labelRight = side === 'left';   // «L м» над ставком, «W м» праворуч
+    // Поле малювання: місце під підписи ширини й довжини (з точками — трохи більше)
+    var sideM = withPts ? 50 : 44, thinM = withPts ? 14 : 10;
+    var left = labelRight ? thinM : sideM, right = labelRight ? sideM : thinM;
+    var top = (withPts ? 14 : 8) + PAD_TOP + (labelTop ? 18 : 0), bottom = labelTop ? 10 : (withPts ? 32 : 26);
     var availW = 320 - left - right, availH = 150 + PAD_TOP - top - bottom;
-    var bioL = m.hasBio ? m.Lb : 0, bioW = m.hasBio ? m.Wb : 0;
-    var scale = Math.min((availW - (m.hasBio ? gapPx : 0)) / (m.L + bioL), availH / Math.max(m.W, bioW));
+    var xmin = Math.min(0, br ? br[0] : 0), xmax = Math.max(m.L, br ? br[0] + br[2] : 0);
+    var ymin = Math.min(0, br ? br[1] : 0), ymax = Math.max(m.W, br ? br[1] + br[3] : 0);
+    var scale = Math.min(availW / (xmax - xmin), availH / (ymax - ymin));
 
     var w = m.L * scale, h = m.W * scale;
-    var totalW = w + (m.hasBio ? gapPx + bioL * scale : 0);
-    var x0 = left + (availW - totalW) / 2;
-    var y0 = top + (availH - h) / 2;
+    var x0 = left + (availW - (xmax - xmin) * scale) / 2 - xmin * scale;
+    var y0 = top + (availH - (ymax - ymin) * scale) / 2 - ymin * scale;
     function X(p) { return (x0 + p[0] * scale).toFixed(1) + ' ' + (y0 + p[1] * scale).toFixed(1); }
 
     if (shape === 'oval') {
@@ -118,20 +124,25 @@ var UI = (function () {
         'class': 'sk-step' + (l.active ? ' is-active' : '') + (l.error ? ' is-error' : '') });
     });
 
-    // Підписи розмірів
-    node('text', { x: x0 + w / 2, y: y0 + h + (withPts ? 24 : 17), 'text-anchor': 'middle', 'class': 'sk-label' }, Format.qty(m.L) + ' м');
-    node('text', { x: x0 - (withPts ? 14 : 6), y: y0 + h / 2 + 4, 'text-anchor': 'end', 'class': 'sk-label' }, Format.qty(m.W) + ' м');
+    // Підписи розмірів: довжина — під ставком (над ним, коли біоплато знизу), ширина — ліворуч (праворуч, коли біоплато ліворуч)
+    var off = withPts ? 14 : 6;
+    node('text', { x: x0 + w / 2, y: labelTop ? y0 - off - 3 : y0 + h + (withPts ? 24 : 17), 'text-anchor': 'middle', 'class': 'sk-label' }, Format.qty(m.L) + ' м');
+    node('text', { x: labelRight ? x0 + w + off : x0 - off, y: y0 + h / 2 + 4, 'text-anchor': labelRight ? 'start' : 'end', 'class': 'sk-label' }, Format.qty(m.W) + ' м');
     // Глибину пишемо всередині, лише якщо вона введена, текст вміщується і немає сходинок
     if (m.D > 0 && w > 92 && h > 22 && !ov.layers.length) {
       node('text', { x: x0 + w / 2, y: y0 + h / 2 + 4, 'text-anchor': 'middle', 'class': 'sk-label sk-label--in' },
         'глибина ' + Format.qty(m.D) + ' м');
     }
 
-    if (m.hasBio) {
-      var bw = bioL * scale, bh = bioW * scale;
-      var bx = x0 + w + gapPx, by = top + (availH - bh) / 2;
+    if (br) {
+      var bx = x0 + br[0] * scale, by = y0 + br[1] * scale, bw = br[2] * scale, bh = br[3] * scale;
       node('rect', { x: bx, y: by, width: bw, height: bh, rx: 2, ry: 2, 'class': 'sk-bio' });
-      node('text', { x: bx + bw / 2, y: by + bh + 17, 'text-anchor': 'middle', 'class': 'sk-label' }, bw > 56 ? 'біоплато' : 'біо');
+      if (side === 'right' || side === 'left') {                  // підпис під біоплато
+        node('text', { x: bx + bw / 2, y: by + bh + 17, 'text-anchor': 'middle', 'class': 'sk-label' }, bw > 56 ? 'біоплато' : 'біо');
+      } else {                                                    // згори / знизу — збоку від біоплато
+        var roomRight = 316 - (bx + bw + 6) > 56;
+        node('text', { x: roomRight ? bx + bw + 6 : bx - 6, y: by + bh / 2 + 4, 'text-anchor': roomRight ? 'start' : 'end', 'class': 'sk-label' }, 'біоплато');
+      }
     }
 
     // Точки активної сходинки: номер у кружечку; прозоре коло більшого радіуса — зона дотику для пальця
@@ -221,11 +232,31 @@ var UI = (function () {
     });
   }
 
-  // Плавне розкриття / згортання блоку (біоплато, коментарі).
-  // inert — приховані поля не отримують фокус і не читаються екранним диктором
+  /*
+   * Плавне розкриття / згортання блоку (біоплато, коментарі), D27 → v0.6.0.
+   * Анімуємо висоту в px (0 → висота вмісту), а не grid-template-rows: так плавно в будь-якому WebKit.
+   * Перший виклик (завантаження сторінки) — без анімації. inert — приховані поля без фокуса.
+   */
   function setCollapse(box, open) {
-    box.classList.toggle('is-open', !!open);
+    open = !!open;
+    var was = box.classList.contains('is-open');
     if (open) box.removeAttribute('inert'); else box.setAttribute('inert', '');
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!box.dataset.ready || reduce) {
+      box.dataset.ready = '1';
+      box.classList.toggle('is-open', open);
+      box.style.height = open ? 'auto' : '0px';
+      return;
+    }
+    if (was === open) return;
+    var inner = box.firstElementChild;
+    box.style.height = box.getBoundingClientRect().height + 'px'; // від поточної висоти (навіть посеред анімації)
+    void box.offsetHeight;                                        // фіксуємо стартову висоту перед переходом
+    box.classList.toggle('is-open', open);
+    box.style.height = (open ? inner.scrollHeight : 0) + 'px';
+    clearTimeout(box._t);
+    // Відкрито → висота «auto», щоб блок міг рости (напр., підказка під полем)
+    box._t = setTimeout(function () { if (box.classList.contains('is-open')) box.style.height = 'auto'; }, 340);
   }
 
   return {

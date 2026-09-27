@@ -33,8 +33,10 @@
   function defaultState() {
     return {
       // steps — сходинки (Про-режим): рівнів = steps.length + 1 (дно), D38
-      inputs: { shape: 'rect', L: '', W: '', D: '', fish: false, bio: false, Lb: '', Wb: '', filmId: '', distance: '', lift: '', steps: [] },
+      // bioSide — з якого боку ставка біоплато: right / bottom / left / top (v0.6.0)
+      inputs: { shape: 'rect', L: '', W: '', D: '', fish: false, bio: false, Lb: '', Wb: '', bioSide: 'right', filmId: '', distance: '', lift: '', steps: [] },
       stepActive: 0,     // яку сходинку редагуємо (її точки — на 2D-схемі)
+      stepsStash: [],    // прибрані «−» сходинки за номером: «+» повертає їх з точками й розмірами
       manual: { filterId: null, pumpId: null, uvId: null, skimmers: null, drains: null },
       decor: { waterfallId: 'none', lightId: 'none', lights: 0, extras: {} },
       client: { name: '', phone: '', phoneCountry: 'UA', address: '' },
@@ -127,6 +129,7 @@
     if (state.decor.waterfallId !== 'none' && !exists(state.decor.waterfallId)) state.decor.waterfallId = 'none';
     if (state.decor.lightId !== 'none' && !exists(state.decor.lightId)) state.decor.lightId = 'none';
     Object.keys(state.decor.extras).forEach(function (id) { if (!exists(id)) delete state.decor.extras[id]; });
+    if (PondGeo.BIO_SIDES.indexOf(state.inputs.bioSide) === -1) state.inputs.bioSide = 'right';
     // Сходинки з чернетки: лише масив об'єктів і не більше за steps_max
     service.pro = !!service.pro;
     var steps = Array.isArray(state.inputs.steps) ? state.inputs.steps : [];
@@ -137,6 +140,8 @@
                wc: str(st.wc), we: str(st.we), a: str(st.a), b: str(st.b), depth_cm: str(st.depth_cm) };
     });
     state.stepActive = Math.max(0, Math.min(Number(state.stepActive) || 0, state.inputs.steps.length - 1));
+    state.stepsStash = (Array.isArray(state.stepsStash) ? state.stepsStash : []).slice(0, stepsMax())
+      .map(function (st) { return st && typeof st === 'object' && Array.isArray(st.points) ? st : null; });
   }
 
   function str(v) { return v === undefined || v === null ? '' : String(v); }
@@ -162,6 +167,7 @@
     $('filmId').value = inp.filmId;
     $('bio').checked = !!inp.bio;
     UI.setCollapse($('bioFields'), inp.bio);
+    syncBioSide();
     document.querySelectorAll('[data-shape]').forEach(function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.shape === inp.shape));
     });
@@ -345,12 +351,17 @@
              depth_cm: defaultDepthCm(k, levels) };
   }
 
-  // Лічильник рівнів: + додає сходинку в кінець і робить її активною, − прибирає останню
+  // Лічильник рівнів: + додає сходинку в кінець і робить її активною, − прибирає останню.
+  // Прибрана сходинка лишається в кеші (stepsStash) під своїм номером: «+» повертає її з точками й розмірами
   function setLevels(n) {
-    var steps = state.inputs.steps, N = Math.max(1, Math.min(stepsMax() + 1, n));
+    var steps = state.inputs.steps, stash = state.stepsStash, N = Math.max(1, Math.min(stepsMax() + 1, n));
     var added = N - 1 > steps.length;
-    while (steps.length < N - 1) steps.push(newStep(steps.length, N));
-    steps.length = N - 1;
+    while (steps.length > N - 1) { var i = steps.length - 1; stash[i] = steps.pop(); }
+    while (steps.length < N - 1) {
+      var k = steps.length;
+      steps.push(stash[k] || newStep(k, N));
+      stash[k] = null;                                            // повернули — у кеші більше не тримаємо
+    }
     state.stepActive = added ? steps.length - 1 : Math.max(0, Math.min(state.stepActive, steps.length - 1));
   }
 
@@ -579,7 +590,8 @@
   // ---------- 3. Схема ставка: 2D / 3D ----------
   // Висота видимої області: у Telegram — стабільна висота Mini App, у браузері — висота вікна
   function viewportHeight() {
-    return (inTelegram && tg.viewportStableHeight) || window.innerHeight;
+    var h = window.innerHeight;
+    return inTelegram && tg.viewportStableHeight ? Math.min(h, tg.viewportStableHeight) : h;
   }
 
   // Прямокутники кнопок і підписів поверх схеми (px відносно блока схеми): креслення їх обходить.
@@ -614,7 +626,11 @@
     $('sketch').setAttribute('aria-label', is3d ? 'Схема ставка в 3D, ракурс ' + (service.scene.view + 1) + ' з 4' : 'Схема ставка, вид зверху');
     var dims = m.L > 0 && m.W > 0 && m.D > 0;
     $('sceneCaption').hidden = !(is3d && dims);
-    if (!is3d) { UI.drawSketch($('sketch'), state.inputs.shape, m, sketchOverlay(m)); return; }
+    if (!is3d) {
+      tweenScene = false; shownFit = null; fitTween = null;   // перехід масштабу — лише для 3D
+      UI.drawSketch($('sketch'), state.inputs.shape, m, sketchOverlay(m), state.inputs.bioSide);
+      return;
+    }
 
     if (sceneAz === null) sceneAz = VIEW_AZ[service.scene.view];
     $('sceneDots').querySelectorAll('i').forEach(function (d, i) { d.classList.toggle('is-on', i === service.scene.view); });
@@ -629,13 +645,42 @@
       sceneBox = { box: { w: w, hMax: Math.max(160, landscape ? vh - 24 : Math.min(w, 0.62 * vh)) }, avoid: sceneAvoid() };
     }
     var bioDepth = Calc.num(catalog.settings.bio_depth_m);
-    Sketch3D.draw($('sketch'), {
+    var o = {
       shape: state.inputs.shape, L: m.L, W: m.W, D: m.D,
-      bio: m.hasBio ? { L: m.Lb, W: m.Wb, depth: bioDepth } : null,
+      bio: m.hasBio ? { L: m.Lb, W: m.Wb, depth: bioDepth, side: state.inputs.bioSide } : null,
       levels: sceneLevels(m), fast: !!fromAnim,
       azimuth: sceneAz, views: VIEW_AZ,
       box: sceneBox.box, avoid: sceneBox.avoid, fs: Number(service.fontScale) || 1
-    });
+    };
+    // Біоплато ввімкнули / перенесли: масштаб і висота схеми змінюються плавно (0,3 с), а не стрибком
+    var target = dims ? Sketch3D.layout(o) : null;
+    if (target && tweenScene && shownFit && shownFit !== target && !fitTween) {
+      fitTween = { from: shownFit, to: target, t0: Date.now() };
+      requestAnimationFrame(tweenFrame);
+    }
+    tweenScene = false;
+    if (fitTween) {
+      if (fitTween.to !== target) fitTween = { from: shownFit, to: target, t0: Date.now() }; // ціль змінилась посеред переходу
+      var k = Math.min(1, (Date.now() - fitTween.t0) / 300), e = 1 - Math.pow(1 - k, 3);
+      o.fit = k < 1 ? lerpFit(fitTween.from, fitTween.to, e) : target;
+      o.fast = k < 1;
+      if (k >= 1) fitTween = null;
+    }
+    shownFit = dims ? (o.fit || target) : null;
+    Sketch3D.draw($('sketch'), o);
+  }
+
+  // Плавний перехід масштабу 3D-схеми
+  var tweenScene = false, fitTween = null, shownFit = null;
+  function lerpFit(a, b, e) {
+    var l = function (x, y) { return x + (y - x) * e; };
+    return { s: l(a.s, b.s), offX: l(a.offX, b.offX), t: l(a.t, b.t), h: l(a.h, b.h), minY: l(a.minY, b.minY),
+             center: [l(a.center[0], b.center[0]), l(a.center[1], b.center[1])] };
+  }
+  function tweenFrame() {
+    if (!fitTween) return;
+    drawScene(true);
+    if (fitTween) requestAnimationFrame(tweenFrame);
   }
 
   // Поворот на сусідній ракурс: dir = +1 (›) або −1 (‹); плавно, якщо користувач не вимкнув анімації
@@ -680,12 +725,20 @@
     });
     // 2. Свайп прибрано (v0.4.1): ракурс змінюють лише стрілки ‹ ›, тож прокрутка сторінки не повертає схему
     // Поворот телефона / зміна розміру вікна: блок схеми змінив розмір — перемальовуємо (раз на кадр)
-    var resizeQueued = false;
-    window.addEventListener('resize', function () {
+    var resizeQueued = false, settle = [];
+    function redraw() {
       if (resizeQueued) return;
       resizeQueued = true;
       requestAnimationFrame(function () { resizeQueued = false; drawScene(); });
-    });
+    }
+    function redrawSettled() {
+      redraw();
+      settle.forEach(clearTimeout);
+      settle = [250, 700].map(function (ms) { return setTimeout(redraw, ms); }); // після анімації повороту
+    }
+    window.addEventListener('resize', redrawSettled);
+    window.addEventListener('orientationchange', redrawSettled);
+    if (inTelegram) tg.onEvent('viewportChanged', function (e) { if (!e || e.isStateStable) redraw(); });
   }
 
   // Будь-яка зміна: зберегти чернетку і перерахувати
@@ -804,7 +857,20 @@
     $('bio').addEventListener('change', function (e) {
       state.inputs.bio = e.target.checked;
       UI.setCollapse($('bioFields'), e.target.checked);
+      syncBioSide();
+      tweenScene = true;                                   // 3D плавно змінює масштаб
       changed();
+    });
+    // 6. ‹ › — біоплато на сусідню сторону ставка (› — за годинниковою: праворуч → знизу → ліворуч → зверху)
+    document.querySelectorAll('[data-bioside]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var sides = PondGeo.BIO_SIDES, i = sides.indexOf(state.inputs.bioSide);
+        state.inputs.bioSide = sides[(i + Number(b.dataset.bioside) + 4) % 4];
+        syncBioSide();
+        tweenScene = true;
+        haptic('select');
+        changed();
+      });
     });
 
     // Обладнання: ручний вибір вимикає автопідбір для цього поля
@@ -922,6 +988,13 @@
     $('btnCopy').addEventListener('click', onCopy);
     $('btnShare').addEventListener('click', onShare);
     $('btnReset').addEventListener('click', onReset);
+  }
+
+  // ---------- Біоплато: сторона ставка ----------
+  var BIO_SIDE_NAMES = { right: 'праворуч', bottom: 'знизу', left: 'ліворуч', top: 'зверху' };
+  function syncBioSide() {
+    $('bioSide').hidden = !state.inputs.bio;
+    $('bioSideLabel').textContent = BIO_SIDE_NAMES[state.inputs.bioSide] || BIO_SIDE_NAMES.right;
   }
 
   // ---------- Коментарі й розмір тексту ----------
@@ -1126,10 +1199,53 @@
     }, { passive: true });
   }
 
-  // ---------- 5. Масштаб (v0.4.1, D45) ----------
-  // Щипок дозволено (meta viewport без user-scalable=no), а подвійне натискання вимкнене в CSS:
-  // touch-action: manipulation — тож швидкі «+/−» рахуються як окремі натискання і не збільшують екран.
-  // Блок жесту gesturestart, що забороняв щипок у v0.2–v0.4, прибрано.
+  // ---------- Масштаб: щипок так, подвійне натискання ні; поворот без зуму (D45, D52) ----------
+  var VIEWPORT = 'width=device-width, initial-scale=1, viewport-fit=cover';
+
+  /*
+   * 3. Подвійне натискання. CSS touch-action: manipulation у WebView Telegram на iOS спрацьовує не завжди
+   * (на «+/−» рівнів екран збільшувався). Тому другий швидкий дотик у тому самому місці гасимо самі:
+   * preventDefault на touchend забороняє зум, а натискання кнопки повторюємо вручну — «+» рахується двічі.
+   * Щипок (два пальці) не чіпаємо; у полях введення подвійний дотик лишається (виділення слова).
+   */
+  function bindDoubleTapGuard() {
+    var last = 0, lx = 0, ly = 0;
+    document.addEventListener('touchend', function (e) {
+      if (e.touches.length || e.changedTouches.length !== 1) return;   // щипок або кілька пальців
+      var t = e.changedTouches[0], now = Date.now();
+      var quick = now - last < 350 && Math.abs(t.clientX - lx) < 30 && Math.abs(t.clientY - ly) < 30;
+      last = now; lx = t.clientX; ly = t.clientY;
+      if (!quick || !e.target.closest || e.target.closest('input, textarea, select')) return;
+      e.preventDefault();                                              // без зуму
+      var el = e.target.closest('button, label, [data-point]');
+      if (el && !el.disabled) el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+      last = 0;                                                        // третій дотик — знову «перший»
+    }, { passive: false });
+  }
+
+  /*
+   * 8. Поворот телефона. З дозволеним щипком iOS після повороту «зберігає видиму ширину» і збільшує
+   * всю сторінку приблизно вдвічі. На час повороту тимчасово ставимо maximum-scale=1 — масштаб
+   * повертається до 1, а через 0,7 с після останньої зміни розміру щипок знову дозволено.
+   */
+  var zoomTimer = null;
+  function lockZoomDuringRotation() {
+    var meta = document.querySelector('meta[name="viewport"]');
+    if (!meta) return;
+    meta.setAttribute('content', VIEWPORT + ', maximum-scale=1');
+    clearTimeout(zoomTimer);
+    zoomTimer = setTimeout(function () { meta.setAttribute('content', VIEWPORT); }, 700);
+  }
+
+  function bindRotation() {
+    var lastW = window.innerWidth;
+    window.addEventListener('orientationchange', lockZoomDuringRotation);
+    window.addEventListener('resize', function () {
+      // ширина змінилась суттєво — це поворот (клавіатура змінює лише висоту)
+      if (Math.abs(window.innerWidth - lastW) > 80) lockZoomDuringRotation();
+      lastW = window.innerWidth;
+    });
+  }
 
   function showError(text) {
     var box = $('loadError');
@@ -1139,6 +1255,8 @@
 
   // ---------- Запуск ----------
   function init() {
+    bindDoubleTapGuard();
+    bindRotation();
     setupTelegram();
     Api.loadCatalog().then(function (cat) {
       catalog = cat;

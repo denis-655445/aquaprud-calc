@@ -195,6 +195,7 @@ select.input {
 .steps .chip { margin: 2px 0 10px; }
 #levelsCounter.is-off .counter__value { opacity: 0.4; } /* 1 рівень = лише дно (D38) */
 .seg__btn.is-error { color: var(--danger); }
+#stepTabs .seg__btn { padding-left: 4px; padding-right: 4px; } /* 4 вкладки «1 · 20 см» — в один рядок на телефоні */
 
 /* ===== Перемикач: клікабельний лише сам перемикач, підпис поруч — ні (8) ===== */
 .switch { display: flex; align-items: center; min-height: 44px; margin-bottom: 8px; }
@@ -210,10 +211,20 @@ select.input {
 .switch input:checked + .switch__track::after { transform: translateX(18px); }
 .switch input:focus-visible + .switch__track { outline: 2px solid var(--button); outline-offset: 2px; }
 
-/* ===== Плавне розкриття (біоплато, коментарі) ===== */
-.collapse { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 0.3s ease, opacity 0.25s ease; }
-.collapse.is-open { grid-template-rows: 1fr; opacity: 1; }
-.collapse__inner { min-height: 0; overflow: hidden; }
+/* ===== Біоплато: ‹ сторона › поруч із перемикачем ===== */
+.bio-side { display: inline-flex; align-items: center; gap: 4px; margin-left: 14px; }
+.bio-side__btn {
+  display: grid; place-items: center; width: 36px; height: 36px; padding: 0;
+  border: 1px solid var(--line); border-radius: 50%; background: var(--bg); color: var(--text); cursor: pointer;
+}
+.bio-side__btn:active { opacity: 0.6; }
+.bio-side__btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.bio-side__label { min-width: 64px; text-align: center; color: var(--hint); font-size: calc(13px * var(--fs)); }
+
+/* ===== Плавне розкриття (біоплато, коментарі): висоту в px анімує ui.js ===== */
+.collapse { height: 0; overflow: hidden; opacity: 0; transition: height 0.32s cubic-bezier(0.2, 0.7, 0.2, 1), opacity 0.25s ease; }
+.collapse.is-open { opacity: 1; }
+.collapse__inner { padding-top: 1px; } /* без «злипання» відступів: scrollHeight рахується точно */
 
 /* ===== Показники ставка ===== */
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 4px 0 0; }
