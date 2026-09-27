@@ -62,6 +62,56 @@ var UI = (function () {
   }
 
   /*
+   * Розкладка 2D-схеми (v0.6.3, D60) — чиста функція без DOM.
+   * pts — що має вміститися: { mx, my } — точка плану, м; dx, dy — зсув від неї, px (підписи, кружечки точок).
+   * box = { w, hMax } — ширина блока і найбільша висота, px; tops = [{ x0, x1, y1 }] — кнопки біля верхнього краю.
+   * Правила:
+   *   1. Масштаб s — найбільший, за якого креслення вміщається в ширину блока і в hMax.
+   *   2. Креслення починається згори (без порожнечі над ним); поруч із кнопкою воно зсувається вбік від неї,
+   *      а не опускається під неї. Нижче кнопки — уся ширина.
+   *   3. Блок не нижчий за кнопку; коли креслення нижче за неї — стоїть по центру по вертикалі.
+   * Повертає { s, offX, t, h }: X = offX + s·mx + dx, Y = t + s·my + dy; h — висота блока.
+   */
+  var PLAN_PAD = 6, PLAN_GAP = 6;
+  function fitPlan(pts, box, tops) {
+    tops = tops || [];
+    var hMin = PLAN_PAD * 2;
+    tops.forEach(function (r) { hMin = Math.max(hMin, r.y1 + PLAN_PAD); });   // блок не нижчий за перемикач
+    function place(sc) {
+      var xl = Infinity, xr = -Infinity, yt = Infinity, yb = -Infinity;
+      pts.forEach(function (p) {
+        var X = sc * p.mx + p.dx, Y = sc * p.my + p.dy;
+        xl = Math.min(xl, X); xr = Math.max(xr, X); yt = Math.min(yt, Y); yb = Math.max(yb, Y);
+      });
+      if (xr - xl > box.w - 2 * PLAN_PAD) return null;                          // ширше за блок
+      var h = Math.max(hMin, yb - yt + 2 * PLAN_PAD);
+      var t = (h - (yb - yt)) / 2 - yt;                                          // згори; у високому блоці — по центру
+      // Допустимий зсув по горизонталі: у межах блока і вбік від кнопок для точок на їхній висоті
+      var lo = PLAN_PAD - xl, hi = box.w - PLAN_PAD - xr;
+      tops.forEach(function (r) {
+        var onRight = (r.x0 + r.x1) / 2 > box.w / 2;
+        pts.forEach(function (p) {
+          if (t + sc * p.my + p.dy >= r.y1 + PLAN_GAP) return;                   // нижче кнопки — можна на всю ширину
+          var X = sc * p.mx + p.dx;
+          if (onRight) hi = Math.min(hi, r.x0 - PLAN_GAP - X); else lo = Math.max(lo, r.x1 + PLAN_GAP - X);
+        });
+      });
+      if (lo > hi + 1e-9) return null;                                           // не вміщається поруч із кнопкою
+      // По центру блока, а якщо заважає кнопка — рівно настільки ближче до іншого краю, наскільки треба
+      var offX = Math.min(Math.max((box.w - xl - xr) / 2, lo), hi);
+      return { s: sc, offX: offX, t: t, h: h };
+    }
+    var mx0 = Infinity, mx1 = -Infinity;
+    pts.forEach(function (p) { mx0 = Math.min(mx0, p.mx); mx1 = Math.max(mx1, p.mx); });
+    var lo = 0, hi = (box.w - 2 * PLAN_PAD) / Math.max(1e-9, mx1 - mx0);
+    for (var it = 0; it < 30; it++) {                     // бінарний пошук, як у 3D
+      var mid = (lo + hi) / 2, r0 = place(mid);
+      if (r0 && r0.h <= box.hMax) lo = mid; else hi = mid;
+    }
+    return place(lo) || { s: lo, offX: PLAN_PAD, t: PLAN_PAD, h: Math.max(hMin, 60) };
+  }
+
+  /*
    * Схема ставка зверху в реальних пропорціях + біоплато з вибраного боку.
    * bioOpt = { side: 'right' | 'bottom' | 'left' | 'top', joined } — joined: біоплато «Разом» (впритул, одне дзеркало, D56).
    * overlay (Про-режим, необов'язково) — у координатах плану, м:
@@ -71,12 +121,12 @@ var UI = (function () {
   function drawSketch(svg, shape, m, overlay, bioOpt, fitOpt) {
     var NS = 'http://www.w3.org/2000/svg';
     while (svg.firstChild) svg.removeChild(svg.firstChild);
-    // v0.6.2 (D57): SVG у реальних пікселях блока, як 3D. Креслення — найбільше, що вміщається в ширину
-    // і в hMax і не заходить під перемикач 2D / 3D (fitOpt.avoid.top). Блок — висотою з креслення, без порожнечі
+    // SVG у реальних пікселях блока, як 3D. Розмір і місце креслення — fitPlan (v0.6.3, D60):
+    // hMax 2D менший, ніж у 3D (app.js), а поруч із перемикачем 2D / 3D креслення зсувається ліворуч
     fitOpt = fitOpt || {};
     var box = fitOpt.box || { w: 320, hMax: 190 }, tops = (fitOpt.avoid && fitOpt.avoid.top) || [];
     var fontPx = 12 * (fitOpt.fs || 1);                  // як .sk-label: 12px × --fs
-    var PAD = 6, GAP = 6;
+    var PAD = PLAN_PAD;
 
     function node(tag, attrs, text, parent) {
       var n = document.createElementNS(NS, tag);
@@ -135,31 +185,8 @@ var UI = (function () {
       else addBox(br[0] + br[2], br[1] + br[3] / 2, 6, 4 - asc, 6 + tw(BIO_T), 4 + desc);  // праворуч від біоплато
     }
 
-    // 2. Найбільший масштаб s: X = offX + s·mx + dx, Y = t + s·my + dy
-    var inX = function (X, r) { return X >= r.x0 - GAP && X <= r.x1 + GAP; };
-    var hMin = 0;
-    tops.forEach(function (r) { hMin = Math.max(hMin, r.y1 + PAD); });   // блок не нижчий за перемикач
-    function place(sc) {
-      var xl = Infinity, xr = -Infinity;
-      pts.forEach(function (p) { var X = sc * p.mx + p.dx; xl = Math.min(xl, X); xr = Math.max(xr, X); });
-      if (xr - xl > box.w - 2 * PAD) return null;        // ширше за блок
-      var offX = (box.w - xl - xr) / 2, t = -Infinity, hh2 = hMin;   // по центру блока
-      pts.forEach(function (p) {
-        var X = offX + sc * p.mx + p.dx, Y = sc * p.my + p.dy;
-        t = Math.max(t, PAD - Y);
-        tops.forEach(function (r) { if (inX(X, r)) t = Math.max(t, r.y1 + GAP - Y); });  // під перемикачем — нижче за нього
-      });
-      pts.forEach(function (p) { hh2 = Math.max(hh2, t + sc * p.my + p.dy + PAD); });
-      return { s: sc, offX: offX, t: t, h: hh2 };
-    }
-    var mx0 = Infinity, mx1 = -Infinity;
-    pts.forEach(function (p) { mx0 = Math.min(mx0, p.mx); mx1 = Math.max(mx1, p.mx); });
-    var lo = 0, hi = (box.w - 2 * PAD) / Math.max(1e-9, mx1 - mx0);
-    for (var it = 0; it < 30; it++) {                     // бінарний пошук, як у 3D
-      var mid = (lo + hi) / 2, r0 = place(mid);
-      if (r0 && r0.h <= box.hMax) lo = mid; else hi = mid;
-    }
-    var fit = place(lo) || { s: lo, offX: PAD, t: PAD, h: Math.max(hMin, 60) };
+    // 2. Масштаб і місце креслення (fitPlan): X = offX + s·mx + dx, Y = t + s·my + dy
+    var fit = fitPlan(pts, box, tops);
     svg.setAttribute('viewBox', '0 0 ' + Math.round(box.w) + ' ' + Math.round(fit.h));
     var scale = fit.s, w = m.L * scale, h = m.W * scale, x0 = fit.offX, y0 = fit.t;
     function X(p) { return (x0 + p[0] * scale).toFixed(1) + ' ' + (y0 + p[1] * scale).toFixed(1); }
@@ -324,7 +351,10 @@ var UI = (function () {
 
   return {
     $: $, el: el, fillSelect: fillSelect, markSelect: markSelect, setNote: setNote,
-    drawSketch: drawSketch, renderStats: renderStats, renderWarnings: renderWarnings,
+    drawSketch: drawSketch, fitPlan: fitPlan, renderStats: renderStats, renderWarnings: renderWarnings,
     renderLines: renderLines, renderTotals: renderTotals, renderExtras: renderExtras, setCollapse: setCollapse
   };
 })();
+
+// Експорт для Node.js (тест fitPlan); у браузері рядок пропускається
+if (typeof module !== 'undefined' && module.exports) module.exports = UI;

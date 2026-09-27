@@ -268,6 +268,18 @@ var PondGeo = (function () {
     return { rect: [box[0], box[1], box[2] - box[0], box[3] - box[1]], union: ring(union), zone: ring(zone), seam: seam.map(toXY) };
   }
 
+  /*
+   * Зовнішня сторона біоплато (v0.6.3, D59) — найдальша від ставка: біля її середини пишемо «біоплато» в 3D.
+   * r — [x, y, ширина, висота] прямокутника біоплато. Повертає середину сторони mid, нормаль назовні n,
+   * напрямок уздовж сторони t і половину її довжини half (координати плану, м).
+   */
+  function bioOuter(r, side) {
+    if (side === 'bottom') return { mid: [r[0] + r[2] / 2, r[1] + r[3]], n: [0, 1], t: [1, 0], half: r[2] / 2 };
+    if (side === 'left') return { mid: [r[0], r[1] + r[3] / 2], n: [-1, 0], t: [0, 1], half: r[3] / 2 };
+    if (side === 'top') return { mid: [r[0] + r[2] / 2, r[1]], n: [0, -1], t: [1, 0], half: r[2] / 2 };
+    return { mid: [r[0] + r[2], r[1] + r[3] / 2], n: [1, 0], t: [0, 1], half: r[3] / 2 };   // праворуч
+  }
+
   // Прибирає сусідні точки, що збігаються; open = true — ламана (перша й остання точки не зливаються)
   function dedupe(pts, tol, open) {
     var out = [];
@@ -310,14 +322,15 @@ var PondGeo = (function () {
           pond.levels.push({ poly: pondOutline, holes: [], depth: p.D, box: bbox(pondOutline), water: true });
           pond.floorOutline = j.zone;
         }
-        bioZone = { outline: j.zone, depth: bd };
+        bioZone = { outline: j.zone, depth: bd, outer: bioOuter(j.rect, p.bio.side) };
       } else {
         // «Окремо»: котлован по центру вибраної сторони з проміжком (як до v0.6.1);
         // «Разом» без глибини біоплато (не заповнено) — плоска ділянка впритул
-        var br = bioRect(p.L, p.W, p.bio, p.bio.side);
-        var bo = p.bio.joined ? bioJoin(p.shape, p.L, p.W, p.bio, p.bio.side).zone : rect(br[0], br[1], br[2], br[3]);
+        var bj = p.bio.joined ? bioJoin(p.shape, p.L, p.W, p.bio, p.bio.side) : null;
+        var br = bj ? bj.rect : bioRect(p.L, p.W, p.bio, p.bio.side);
+        var bo = bj ? bj.zone : rect(br[0], br[1], br[2], br[3]);
         pits.push({ id: 'bio', outline: bo, depth: bd, levels: [] });
-        bioZone = { outline: bo, depth: bd };
+        bioZone = { outline: bo, depth: bd, outer: bioOuter(br, p.bio.side) };
       }
     }
     // Ділянка землі навколо котлованів: на кресленні ставок читається як «яма», а не коробка
@@ -326,7 +339,7 @@ var PondGeo = (function () {
     var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);
     var y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
     var margin = Math.max(0.4, 0.08 * Math.max(x1 - x0, y1 - y0));
-    // bio — ділянка біоплато (для підпису «біоплато»); pondOutline — контур самого ставка без біоплато
+    // bio — ділянка біоплато (для підпису «біоплато»; outer — її зовнішня сторона); pondOutline — контур ставка без біоплато
     return { pits: pits, ground: rect(x0 - margin, y0 - margin, x1 - x0 + 2 * margin, y1 - y0 + 2 * margin),
              bio: bioZone, pondOutline: pondOutline };
   }
@@ -690,7 +703,7 @@ var PondGeo = (function () {
     camera: camera, project: project, isVisible: isVisible,
     sceneLines: sceneLines, render: render, stableBounds: stableBounds,
     sceneCenter: sceneCenter, projectedPoints: projectedPoints, convexHull: convexHull,
-    simplifyRing: simplifyRing, levelGeometry: levelGeometry, bioRect: bioRect, bioJoin: bioJoin, BIO_SIDES: BIO_SIDES
+    simplifyRing: simplifyRing, levelGeometry: levelGeometry, bioRect: bioRect, bioJoin: bioJoin, bioOuter: bioOuter, BIO_SIDES: BIO_SIDES
   };
 })();
 

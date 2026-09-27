@@ -22,6 +22,7 @@
   var lastMetrics = null;  // метрики останнього розрахунку — для перемальовування схеми під час повороту
   // 3D: 4 ракурси по діагоналі; › повертає глядача за годинниковою стрілкою (+90°)
   var VIEW_AZ = [135, 225, 315, 45];
+  var PLAN_H_K = 0.6;      // 2D у портреті: висота блока ≤ 0,6 ширини (D60) — між v0.6.1 (замала) і v0.6.2 (завелика)
   var sceneAz = null;      // поточний кут глядача (під час анімації — проміжний)
   var animId = 0;
   var saveTimer = null;
@@ -635,10 +636,12 @@
         (state.inputs.shape === 'custom' ? ' (форма умовна)' : '');
     }
     if (!fromAnim || !sceneBox) {
-      // 1. Розмір блока схеми (2D і 3D, D57): на всю ширину; висота — до ширини блока (портрет) або до висоти екрана (альбом)
+      // 1. Розмір блока схеми (D57): на всю ширину; висота — до висоти екрана (альбом), а в портреті:
+      //    3D — до ширини блока, 2D — до PLAN_H_K ширини (v0.6.3, D60: план 2D на всю висоту був завеликим)
       var bw = $('scene').clientWidth, vh = viewportHeight();
       var landscape = window.matchMedia('(orientation: landscape) and (max-height: 500px)').matches;
-      sceneBox = { box: { w: bw, hMax: Math.max(160, landscape ? vh - 24 : Math.min(bw, 0.62 * vh)) }, avoid: sceneAvoid() };
+      var hPortrait = Math.min((is3d ? 1 : PLAN_H_K) * bw, 0.62 * vh);
+      sceneBox = { box: { w: bw, hMax: Math.max(160, landscape ? vh - 24 : hPortrait) }, avoid: sceneAvoid() };
     }
     if (!is3d) {
       tweenScene = false; shownFit = null; fitTween = null;   // перехід масштабу — лише для 3D
@@ -679,9 +682,9 @@
   var tweenScene = false, fitTween = null, shownFit = null;
   function lerpFit(a, b, e) {
     var l = function (x, y) { return x + (y - x) * e; };
-    // views — зсув і висота кожного ракурсу (D57): переходять плавно разом з масштабом
+    // views — зсув, висота і місце підпису «біоплато» кожного ракурсу (D58, D59): переходять плавно разом з масштабом
     var views = (a.views || []).length === (b.views || []).length ? (b.views || []).map(function (v, i) {
-      return { az: v.az, t: l(a.views[i].t, v.t), h: l(a.views[i].h, v.h) };
+      return { az: v.az, t: l(a.views[i].t, v.t), h: l(a.views[i].h, v.h), k: l(a.views[i].k || 0, v.k || 0) };
     }) : b.views;
     return { s: l(a.s, b.s), offX: l(a.offX, b.offX), t: l(a.t, b.t), h: l(a.h, b.h), minY: l(a.minY, b.minY),
              center: [l(a.center[0], b.center[0]), l(a.center[1], b.center[1])], views: views };

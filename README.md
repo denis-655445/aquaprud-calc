@@ -16,7 +16,7 @@ docs/            project_status.md (опис проєкту), stairs_math.md (м
 ## Перевірка на MacBook без інтернету й сервера
 
 Відкрийте подвійним кліком `miniapp/index.html` — застосунок запрацює в браузері.
-Тести: `tests/tests.html` — має бути «Усі 68 тестів пройдено» (або `node tests/run-node.js`).
+Тести: `tests/tests.html` — має бути «Усі 78 тестів пройдено» (або `node tests/run-node.js`).
 
 ## Сходинки (Про-режим)
 

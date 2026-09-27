@@ -1,5 +1,6 @@
 /*
- * tests/sketch3d.tests.js — тести 3D-схеми (v0.4.1): підпис «біоплато» і масштаб з урахуванням кнопок.
+ * tests/sketch3d.tests.js — тести 3D-схеми: підпис «біоплато» (D59), масштаб з урахуванням кнопок,
+ * стала висота блока для 4 ракурсів (D58).
  * Потрібні глобальні PondGeo і Sketch3D (у Node — run-node.js робить PondGeo глобальним).
  */
 var Sketch3DTests = (function () {
@@ -18,38 +19,62 @@ var Sketch3DTests = (function () {
 
   function cases(G, S) {
     var pond = { shape: 'rect', L: 10, W: 5, D: 3, bio: { L: 4, W: 1, depth: 0.3 } };
-    var avoid = { top: [{ x0: 0, x1: 150, y1: 26 }, { x0: 250, x1: 360, y1: 40 }], bottom: [{ x0: 0, x1: 40, h: 25 }, { x0: 262, x1: 360, h: 44 }] };
+    // v0.6.3: перемикач 2D / 3D вертикальний — вузький (54 px) і вищий (78 px)
+    var avoid = { top: [{ x0: 0, x1: 150, y1: 26 }, { x0: 306, x1: 360, y1: 78 }], bottom: [{ x0: 0, x1: 40, h: 25 }, { x0: 262, x1: 360, h: 44 }] };
     function model(az, box) {
       var o = {}; for (var k in pond) o[k] = pond[k];
       o.azimuth = az; o.box = box || { w: 360, hMax: 360 }; o.avoid = avoid; o.fs = 1;
       return S.build(o);
     }
+    // Випадок зі скріншотів майстра: 6 × 4, біоплато зверху «Разом»; кнопки — як у v0.6.3 (вертикальний 2D / 3D)
+    var user = { shape: 'rect', L: 6, W: 4, D: 1.5, bio: { L: 1.5, W: 6, depth: 0.3, side: 'top', joined: true } };
+    var appAvoid = { top: [{ x0: 0, x1: 190, y1: 26 }, { x0: 308, x1: 362, y1: 78 }], bottom: [{ x0: 0, x1: 40, h: 25 }, { x0: 266, x1: 362, h: 44 }] };
+    function withOpts(base, extra) { var o = {}, k; for (k in base) o[k] = base[k]; for (k in extra) o[k] = extra[k]; return o; }
+    // Прямокутник тексту «біоплато» в моделі (оцінка ширини — як у sketch3d.js)
+    function labelRect(m) {
+      var t = m.items.filter(function (it) { return it.tag === 'text' && it.text === 'біоплато'; })[0];
+      if (!t) return null;
+      var fp = S.LABEL_PX, w = 0.62 * fp * 8 + 6, x = Number(t.attrs.x), y = Number(t.attrs.y);
+      return { x0: x - w / 2, x1: x + w / 2, y0: y - 0.8 * fp, y1: y + 0.25 * fp };
+    }
     return [
-      ['Підпис «біоплато»: над котлованом у ракурсах 1–2, під ним у ракурсах 3–4', function () {
-        var sc = G.buildScene(pond);
-        var below = [135, 225, 315, 45].map(function (az) { return S.bioLabelAnchor(sc, G.camera(az, S.ELEVATION)).below; });
-        return below.join() === 'false,false,true,true';
+      ['Підпис «біоплато» (D59): біля середини зовнішньої сторони, за краєм землі; не додає висоти', function () {
+        return [135, 225, 315, 45].every(function (az) {
+          var o = withOpts(user, { azimuth: az, box: { w: 362, hMax: 362 }, avoid: { top: [], bottom: [] }, fs: 1 });
+          var m = S.build(o), lr = labelRect(m), ys = linePoints(m).map(function (p) { return p[1]; });
+          var sc = G.buildScene(o), lab = S.bioLabel(sc, G.camera(az, S.ELEVATION), S.LABEL_PX, 0);
+          // Без кнопок — підпис посередині (k = 0) і між найвищою та найнижчою лініями креслення
+          return lab && S.layout(o).views.every(function (v) { return v.k === 0; }) &&
+            lr.y0 >= Math.min.apply(null, ys) - 1 && lr.y1 <= Math.max.apply(null, ys) + 1;
+        });
       }],
       ['Біоплато «Разом» (D56): підпис є, один котлован, висота ≤ hMax', function () {
         var o = { shape: 'oval', L: 10, W: 5, D: 3, bio: { L: 4, W: 1, depth: 0.3, side: 'right', joined: true },
                   azimuth: 135, box: { w: 360, hMax: 360 }, avoid: avoid, fs: 1 };
         var m = S.build(o), sc = G.buildScene(o);
-        var hasLabel = m.items.some(function (it) { return it.tag === 'text' && it.text === 'біоплато'; });
-        return hasLabel && sc.pits.length === 1 && !!S.bioLabelAnchor(sc, G.camera(135, S.ELEVATION)) && m.height <= 360;
+        return !!labelRect(m) && sc.pits.length === 1 && !!S.bioLabel(sc, G.camera(135, S.ELEVATION), S.LABEL_PX, 0) && m.height <= 360;
       }],
-      ['Масштаб спільний для 4 ракурсів; висота — своя для ракурсу (без порожнечі), не більша за спільну (D57)', function () {
-        var o = {}; for (var k in pond) o[k] = pond[k];
-        o.box = { w: 360, hMax: 360 }; o.avoid = avoid; o.fs = 1;
-        var fit = S.layout(o), hs = fit.views.map(function (v) { return v.h; });
-        var sameAsModel = fit.views.every(function (v) { return model(v.az).height === Math.round(v.h); });
-        return sameAsModel && hs.every(function (h) { return h <= fit.h + 1e-6; }) &&
-          Math.min.apply(null, hs) < Math.max.apply(null, hs) - 1;   // біоплато з одного боку — ракурси різної висоти
+      ['Висота блока однакова для 4 ракурсів і ≤ hMax (D58)', function () {
+        var o = withOpts(pond, { box: { w: 360, hMax: 360 }, avoid: avoid, fs: 1 });
+        var fit = S.layout(o);
+        return fit.h <= 360 && fit.views.every(function (v) { return Math.abs(v.h - fit.h) < 1e-9 && model(v.az).height === Math.round(fit.h); });
       }],
-      ['Висота між ракурсами змінюється плавно: посередині повороту — між висотами сусідніх ракурсів', function () {
-        var o = {}; for (var k in pond) o[k] = pond[k];
-        o.box = { w: 360, hMax: 360 }; o.avoid = avoid; o.fs = 1;
-        var fit = S.layout(o), a = S.viewFit(fit, 135).h, b = S.viewFit(fit, 225).h, mid = S.viewFit(fit, 180).h;
-        return Math.abs(mid - (a + b) / 2) < 1e-6 && Math.abs(S.viewFit(fit, 45 + 360).h - S.viewFit(fit, 45).h) < 1e-9;
+      ['Поворот: висота стала, зсув посередині — між сусідніми ракурсами', function () {
+        var o = withOpts(pond, { box: { w: 360, hMax: 360 }, avoid: avoid, fs: 1 });
+        var fit = S.layout(o), a = S.viewFit(fit, 135), b = S.viewFit(fit, 225), mid = S.viewFit(fit, 180);
+        return Math.abs(mid.t - (a.t + b.t) / 2) < 1e-6 && Math.abs(mid.h - fit.h) < 1e-9 &&
+          Math.abs(S.viewFit(fit, 45 + 360).t - S.viewFit(fit, 45).t) < 1e-9;
+      }],
+      ['Підпис під кнопкою зсувається вздовж сторони: не під кнопками, висота — як без перемикача', function () {
+        var noToggle = { top: [appAvoid.top[0]], bottom: appAvoid.bottom };
+        var hA = S.layout(withOpts(user, { box: { w: 362, hMax: 362 }, avoid: appAvoid, fs: 1 })).h;
+        var hB = S.layout(withOpts(user, { box: { w: 362, hMax: 362 }, avoid: noToggle, fs: 1 })).h;
+        var free = [135, 225, 315, 45].every(function (az) {
+          var m = S.build(withOpts(user, { azimuth: az, box: { w: 362, hMax: 362 }, avoid: appAvoid, fs: 1 })), lr = labelRect(m);
+          return !appAvoid.top.some(function (r) { return lr.x1 > r.x0 && lr.x0 < r.x1 && lr.y0 < r.y1; }) &&
+            !appAvoid.bottom.some(function (r) { return lr.x1 > r.x0 && lr.x0 < r.x1 && lr.y1 > m.height - r.h; });
+        });
+        return free && Math.abs(hA - hB) < 1;
       }],
       ['Лінії креслення не заходять під кнопки й підпис, висота ≤ hMax', function () {
         return [135, 225, 315, 45].every(function (az) {
@@ -66,7 +91,7 @@ var Sketch3DTests = (function () {
         o.box = { w: 700, hMax: 330 }; o.avoid = avoid; o.fs = 1;
         var fit = S.layout(o), m = model(135, { w: 700, hMax: 330 });
         var xs = linePoints(m).map(function (p) { return p[0]; });
-        // Найвищий ракурс займає висоту, решта — не вищі; по ширині лишається запас
+        // Блок займає висоту (однакову для всіх ракурсів); по ширині лишається запас
         return fit.h <= 330 && fit.h > 300 && m.height <= 330 && Math.max.apply(null, xs) - Math.min.apply(null, xs) < 650;
       }]
     ];

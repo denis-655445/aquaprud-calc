@@ -133,11 +133,12 @@ select.input {
 .sketch.is-3d { overflow: visible; }
 /* Розміри ставка в 3D — зліва вгорі поверх схеми; ширина обмежена, щоб не залазити під 2D/3D */
 .scene__caption {
-  position: absolute; top: 8px; left: 2px; max-width: calc(100% - 130px); margin: 0;
+  position: absolute; top: 8px; left: 2px; max-width: calc(100% - 72px); margin: 0;
   color: var(--hint); font-size: calc(13px * var(--fs)); line-height: 1.3; font-variant-numeric: tabular-nums; pointer-events: none;
 }
-/* 2D / 3D — у кутку схеми, як на картах */
-.scene__mode { position: absolute; top: 0; right: 0; margin: 0; }
+/* 2D / 3D — у кутку схеми, як на картах. v0.6.3: вертикально (2D зверху, 3D під ним) — вузька колонка
+   праворуч не заступає схему; розміри кнопок ті самі (48 × 34) */
+.scene__mode { position: absolute; top: 0; right: 0; margin: 0; flex-direction: column; flex-wrap: nowrap; }
 .scene__mode .seg__btn { flex: none; min-width: 48px; min-height: 34px; padding: 4px 12px; }
 /* Стрілки ракурсів — справа знизу, як на банерах; зона дотику 44×44 */
 .scene__nav { position: absolute; right: 0; bottom: 0; display: flex; gap: 8px; }

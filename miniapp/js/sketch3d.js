@@ -9,6 +9,13 @@
  *   2. Масштаб рахуємо лише для 4 ракурсів (раніше — для всіх 360°) і однаковий для всіх: під час повороту не стрибає.
  *   3. Кнопки й підписи поверх схеми (2D/3D, стрілки, крапки) задаються прямокутниками avoid:
  *      креслення підходить до них впритул, але не залазить під них.
+ *
+ * v0.6.3 (D58, D59):
+ *   1. Висота блока однакова для 4 ракурсів — найбільша з них за спільного масштабу; під час повороту
+ *      вміст під схемою не рухається. Нижчий ракурс стоїть по центру блока.
+ *   2. «біоплато» — біля середини зовнішньої сторони біоплато (найдальшої від ставка), за краєм ділянки землі:
+ *      підпис не виходить за силует креслення і не додає висоти. Якщо в середині сторони підпис заходить під
+ *      кнопку, він зсувається вздовж сторони (до 0,8 її півдовжини) — туди, де блок виходить найнижчим.
  */
 var Sketch3D = (function () {
   'use strict';
@@ -21,8 +28,9 @@ var Sketch3D = (function () {
   var STEP_PX = 1.5;            // крок перевірки видимості вздовж ребра, px
   var STEP_PX_FAST = 3;         // під час анімації повороту — грубіше, щоб кадри встигали на телефоні
   var LABEL_PX = 13;            // розмір шрифту підписів (множиться на --fs), як .s3-label у CSS
-  var LABEL_GAP = 5;            // від котлована до підпису «біоплато», px
+  var LABEL_GAP = 5;            // від краю ділянки землі до підпису «біоплато», px
   var BIO_TEXT = 'біоплато';
+  var LABEL_SLIDE = [0, 0.4, -0.4, 0.8, -0.8]; // зсув підпису вздовж сторони, частки півдовжини: спершу середина
   var uid = 0;                  // унікальні id обрізок: на сторінці може бути кілька схем
   var cache = { key: null, fit: null }; // масштаб рахуємо один раз, а не на кожен кадр повороту
   var sceneCache = { key: null, levels: null, scene: null }; // сцена з геометрією сходинок — теж
@@ -32,43 +40,34 @@ var Sketch3D = (function () {
     return pts.map(function (p, i) { return (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1); }).join('') + (close ? 'Z' : '');
   }
 
-  function pitById(scene, id) { return scene.pits.filter(function (p) { return p.id === id; })[0]; }
-
-  function bboxCenter(poly) {
-    var xs = poly.map(function (p) { return p[0]; }), ys = poly.map(function (p) { return p[1]; });
-    return [(Math.min.apply(null, xs) + Math.max.apply(null, xs)) / 2, (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2];
-  }
-
   /*
-   * 3. Де писати «біоплато»: над котлованом, коли біоплато за ставком, і під ним, коли перед ставком
-   * (інакше напис лягає на сам ставок). Повертає точку прив'язки в екранних координатах креслення, м.
+   * 3. Де писати «біоплато» (v0.6.3, D59): біля середини зовнішньої сторони біоплато — тієї, що найдальша від ставка.
+   * Точка прив'язки — середина краю ділянки землі з цього боку (земля ширша за котлован на margin, pondgeo.js);
+   * прямокутник підпису стоїть назовні від цього краю, впритул із зазором LABEL_GAP, і не перетинає його.
+   * slide — зсув уздовж сторони в частках її півдовжини (0 — середина; −1…1).
+   * Повертає { x, y } — точку прив'язки в екранних координатах креслення, м;
+   * box — прямокутник тексту відносно неї, px; cx, base — центр і базова лінія тексту, px.
    */
-  function bioLabelAnchor(scene, cam) {
-    // Ділянка біоплато: окремий котлован або мілка зона спільного дзеркала («Разом», D56)
+  function bioLabel(scene, cam, fontPx, slide) {
     var bio = scene.bio;
-    if (!bio) return null;
-    var bc = bboxCenter(bio.outline), pc = bboxCenter(scene.pondOutline || pitById(scene, 'pond').outline);
-    // Біоплато ближче до глядача, ніж ставок → воно «спереду»
-    var front = (bc[0] - pc[0]) * cam.c[0] + (bc[1] - pc[1]) * cam.c[1] > 0;
-    var mid = PondGeo.project(cam, bc[0], bc[1], 0);
-    var y = front ? -Infinity : Infinity;
-    bio.outline.forEach(function (p) {
-      if (front) {
-        // знизу: під найнижчою точкою, враховуючи й дно (пунктир теж частина креслення)
-        y = Math.max(y, PondGeo.project(cam, p[0], p[1], 0)[1], PondGeo.project(cam, p[0], p[1], -bio.depth)[1]);
-      } else {
-        y = Math.min(y, PondGeo.project(cam, p[0], p[1], 0)[1]);
-      }
-    });
-    return { x: mid[0], y: y, below: front };
-  }
-
-  // Прямокутник підпису відносно точки прив'язки, px. Ширину тексту оцінюємо (~0,6 висоти шрифту на літеру)
-  function labelBox(below, fontPx) {
-    var w = 0.62 * fontPx * BIO_TEXT.length + 6, asc = 0.8 * fontPx, desc = 0.25 * fontPx;
-    return below
-      ? { x0: -w / 2, x1: w / 2, y0: LABEL_GAP, y1: LABEL_GAP + asc + desc, base: LABEL_GAP + asc }
-      : { x0: -w / 2, x1: w / 2, y0: -LABEL_GAP - asc, y1: -LABEL_GAP + desc, base: -LABEL_GAP };
+    if (!bio || !bio.outer) return null;
+    var o = bio.outer, n = o.n, t = o.t, u = (slide || 0) * o.half;
+    // Відстань від сторони біоплато до краю землі вздовж нормалі назовні
+    var d = 0;
+    scene.ground.forEach(function (q) { d = Math.max(d, (q[0] - o.mid[0]) * n[0] + (q[1] - o.mid[1]) * n[1]); });
+    var a = PondGeo.project(cam, o.mid[0] + n[0] * d + t[0] * u, o.mid[1] + n[1] * d + t[1] * u, 0);
+    // Напрям краю на екрані і нормаль до нього, повернута назовні (туди ж, куди й проєкція n)
+    var ts = [t[0] * cam.r[0] + t[1] * cam.r[1], (t[0] * cam.c[0] + t[1] * cam.c[1]) * cam.sinE];
+    var ns = [n[0] * cam.r[0] + n[1] * cam.r[1], (n[0] * cam.c[0] + n[1] * cam.c[1]) * cam.sinE];
+    var len = Math.hypot(ts[0], ts[1]), nu = [-ts[1] / len, ts[0] / len];
+    if (nu[0] * ns[0] + nu[1] * ns[1] < 0) nu = [-nu[0], -nu[1]];
+    // Розмір тексту: ширина ~0,62 висоти шрифту на літеру
+    var w = 0.62 * fontPx * BIO_TEXT.length + 6, asc = 0.8 * fontPx, desc = 0.25 * fontPx, hh = asc + desc;
+    // Центр тексту — на нормалі, на такій відстані, щоб прямокутник лише торкався краю (+ зазор)
+    var dist = LABEL_GAP + Math.abs(nu[0]) * w / 2 + Math.abs(nu[1]) * hh / 2;
+    var cx = nu[0] * dist, cy = nu[1] * dist;
+    return { x: a[0], y: a[1], cx: cx, base: cy - hh / 2 + asc,
+             box: { x0: cx - w / 2, x1: cx + w / 2, y0: cy - hh / 2, y1: cy + hh / 2 } };
   }
 
   /*
@@ -92,16 +91,21 @@ var Sketch3D = (function () {
         var b = hull[(i + 1) % hull.length], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / (span / 80)));
         for (var k = 0; k < n; k++) pts.push({ v: vi, mx: a[0] + (b[0] - a[0]) * k / n, my: a[1] + (b[1] - a[1]) * k / n, dx: 0, dy: 0 });
       });
-      var lab = bioLabelAnchor(scene, cam);
-      if (lab) {
-        var lb = labelBox(lab.below, fontPx);
-        [[lb.x0, lb.y0], [lb.x1, lb.y0], [lb.x1, lb.y1], [lb.x0, lb.y1], [0, lb.y0], [0, lb.y1]].forEach(function (d) {
-          pts.push({ v: vi, mx: lab.x - c0[0], my: lab.y - c0[1], dx: d[0], dy: d[1] });
-        });
-      }
+      // Варіанти місця підпису (LABEL_SLIDE); cand — номер варіанта, для ракурсу вибирається один (place)
+      LABEL_SLIDE.forEach(function (sl, ci) {
+        var lab = bioLabel(scene, cam, fontPx, sl);
+        if (!lab) return;
+        // Верхній і нижній край підпису — по 5 точок: кнопка може стати між кутами
+        var b = lab.box;
+        for (var k = 0; k <= 4; k++) {
+          var x = b.x0 + (b.x1 - b.x0) * k / 4;
+          pts.push({ v: vi, cand: ci, mx: lab.x - c0[0], my: lab.y - c0[1], dx: x, dy: b.y0 });
+          pts.push({ v: vi, cand: ci, mx: lab.x - c0[0], my: lab.y - c0[1], dx: x, dy: b.y1 });
+        }
+      });
     });
     var minX = Infinity, maxX = -Infinity, minY = Infinity;
-    pts.forEach(function (p) { minX = Math.min(minX, p.mx); maxX = Math.max(maxX, p.mx); minY = Math.min(minY, p.my); });
+    pts.forEach(function (p) { if (p.cand) return; minX = Math.min(minX, p.mx); maxX = Math.max(maxX, p.mx); minY = Math.min(minY, p.my); });
 
     // Мінімальна висота: щоб кнопки згори й знизу не налазили одна на одну
     var hMin = PAD * 2;
@@ -123,42 +127,66 @@ var Sketch3D = (function () {
       });
       return { t: t, h: h };
     }
+    // Точки кожного ракурсу окремо: зсув і висота рахуються для ракурсу, а не для суми всіх 4 (менше порожнечі).
+    // base — креслення; cands[ci] — підпис у варіанті ci (порожньо, якщо біоплато немає)
+    var byView = views.map(function (az, vi) {
+      var mine = pts.filter(function (p) { return p.v === vi; });
+      var base = mine.filter(function (p) { return p.cand === undefined; });
+      var cands = LABEL_SLIDE.map(function (sl, ci) { return mine.filter(function (p) { return p.cand === ci; }); })
+        .filter(function (c) { return c.length; });
+      return { base: base, cands: cands.length ? cands : [[]] };
+    });
+    // Ракурс: найнижчий блок серед варіантів підпису; за рівної висоти — ближчий до середини сторони (менший ci)
+    function viewPlace(bv, s, offX) {
+      var best = null;
+      bv.cands.forEach(function (c, ci) {
+        // Зсунутий підпис не має виходити за бокові краї блока
+        if (c.some(function (p) { var X = offX + s * p.mx + p.dx; return X < PAD || X > box.w - PAD; })) return;
+        var v = vertical(bv.base.concat(c), s, offX);
+        if (!best || v.h < best.h - 0.5) best = { t: v.t, h: v.h, k: LABEL_SLIDE[ci] };
+      });
+      return best;
+    }
     function place(s) {
       var xl = Infinity, xr = -Infinity;
-      pts.forEach(function (p) { var X = s * p.mx + p.dx; xl = Math.min(xl, X); xr = Math.max(xr, X); });
+      // Ширина — за кресленням і підписом посередині сторони (зсунутий підпис лежить уздовж того самого краю)
+      pts.forEach(function (p) { if (p.cand) return; var X = s * p.mx + p.dx; xl = Math.min(xl, X); xr = Math.max(xr, X); });
       if (xr - xl > box.w - 2 * PAD) return null;           // ширше за блок
       var offX = (box.w - xl - xr) / 2;                      // по центру блока (для всіх ракурсів однаково)
-      var all = vertical(pts, s, offX);
-      return { s: s, offX: offX, t: all.t, h: all.h, minY: minY, center: center };
+      var per = byView.map(function (bv) { return viewPlace(bv, s, offX); });
+      // v0.6.3 (D58): висота блока — найбільша з 4 ракурсів і однакова для всіх: під час повороту не змінюється
+      var H = Math.max.apply(null, per.map(function (v) { return v.h; }));
+      return { s: s, offX: offX, h: H, per: per };
     }
 
-    // Бінарний пошук найбільшого масштабу, що вміщається
+    // Бінарний пошук найбільшого масштабу, за якого найвищий ракурс вміщається в hMax
     var lo = 0, hi = (box.w - 2 * PAD) / Math.max(1e-9, maxX - minX);
     for (var i = 0; i < 32; i++) {
       var mid = (lo + hi) / 2, r = place(mid);
       if (r && r.h <= opts.box.hMax) lo = mid; else hi = mid;
     }
-    var fit = place(lo) || { s: lo, offX: box.w / 2, t: PAD, h: hMin, minY: minY, center: center };
-    // v0.6.2 (D57): масштаб — спільний для 4 ракурсів (≤ hMax у кожному), а висота блока — своя для ракурсу:
-    // згори й знизу немає порожнечі, яку «тримав» найвищий ракурс. Між ракурсами — плавний перехід (viewFit)
-    fit.views = views.map(function (az, vi) {
-      var v = vertical(pts.filter(function (p) { return p.v === vi; }), fit.s, fit.offX);
-      return { az: az, t: v.t, h: v.h };
+    var best = place(lo) || { s: lo, offX: box.w / 2, h: hMin, per: views.map(function () { return { t: PAD, h: hMin, k: 0 }; }) };
+    // Нижчий ракурс — по центру блока: зверху й знизу однаковий запас (межі кнопок не порушуються — лише зсув униз).
+    // k — вибраний зсув підпису «біоплато» для ракурсу
+    var fitViews = views.map(function (az, vi) {
+      var v = best.per[vi];
+      return { az: az, t: v.t + (best.h - v.h) / 2, h: best.h, k: v.k };
     });
-    return fit;
+    return { s: best.s, offX: best.offX, t: fitViews[0].t, h: best.h, minY: minY, center: center, views: fitViews };
   }
 
-  // t і h для довільного кута: лінійно між двома сусідніми ракурсами (під час повороту висота змінюється плавно)
+  // t і h для довільного кута: лінійно між двома сусідніми ракурсами (v0.6.3: h однакова — змінюється лише зсув t)
   function viewFit(fit, azimuth) {
     var vs = (fit.views || []).slice().sort(function (p, q) { return p.az - q.az; });
-    if (!vs.length) return { t: fit.t, h: fit.h };
+    if (!vs.length) return { t: fit.t, h: fit.h, k: 0 };
     var a = ((azimuth % 360) + 360) % 360;
+    function lerp(x, y, e) { return (x || 0) + ((y || 0) - (x || 0)) * e; }
     for (var i = 0; i < vs.length; i++) {
       var p = vs[i], q = vs[(i + 1) % vs.length];
       var span = ((q.az - p.az) % 360 + 360) % 360 || 360, d = ((a - p.az) % 360 + 360) % 360;
-      if (d <= span) { var k = d / span; return { t: p.t + (q.t - p.t) * k, h: p.h + (q.h - p.h) * k }; }
+      if (d <= span) { var e = d / span; return { t: lerp(p.t, q.t, e), h: lerp(p.h, q.h, e), k: lerp(p.k, q.k, e) }; }
     }
-    return { t: vs[0].t, h: vs[0].h };
+    return { t: vs[0].t, h: vs[0].h, k: vs[0].k || 0 };
   }
 
   /*
@@ -196,7 +224,7 @@ var Sketch3D = (function () {
 
     var cam = PondGeo.camera(opts.azimuth, ELEVATION);
     var c0 = PondGeo.project(cam, fit.center[0], fit.center[1], 0);
-    var vf = viewFit(fit, opts.azimuth);                   // зсув і висота саме для цього ракурсу (D57)
+    var vf = viewFit(fit, opts.azimuth);                   // зсув саме для цього ракурсу; висота — спільна (D58)
     // Екранні координати креслення → px SVG: по горизонталі центр сцени лишається на місці під час повороту
     function toSvg(p) { return [fit.offX + (p[0] - c0[0]) * s, vf.t + (p[1] - c0[1] - fit.minY) * s]; }
     function mapPts(pts) { return pts.map(toSvg); }
@@ -235,11 +263,11 @@ var Sketch3D = (function () {
       items.push({ tag: 'path', attrs: { d: pathD(mapPts(l.pts), false), 'class': 's3-line' + (l.kind === 'rim' ? ' s3-line--rim' : l.kind === 'step' ? ' s3-line--step' : '') } });
     });
 
-    // Підпис «біоплато»: над котлованом або під ним (див. bioLabelAnchor)
-    var lab = bioLabelAnchor(scene, cam);
+    // Підпис «біоплато»: біля середини зовнішньої сторони біоплато, за краєм землі (див. bioLabel)
+    var lab = bioLabel(scene, cam, LABEL_PX * (opts.fs || 1), vf.k);
     if (lab) {
-      var a = toSvg([lab.x, lab.y]), lb = labelBox(lab.below, LABEL_PX * (opts.fs || 1));
-      items.push({ tag: 'text', attrs: { x: a[0].toFixed(1), y: (a[1] + lb.base).toFixed(1), 'text-anchor': 'middle', 'class': 'sk-label s3-label' }, text: BIO_TEXT });
+      var a = toSvg([lab.x, lab.y]);
+      items.push({ tag: 'text', attrs: { x: (a[0] + lab.cx).toFixed(1), y: (a[1] + lab.base).toFixed(1), 'text-anchor': 'middle', 'class': 'sk-label s3-label' }, text: BIO_TEXT });
     }
 
     var h = Math.round(vf.h);
@@ -263,7 +291,7 @@ var Sketch3D = (function () {
     return model;
   }
 
-  return { build: build, draw: draw, layout: layout, viewFit: viewFit, bioLabelAnchor: bioLabelAnchor, ELEVATION: ELEVATION, FIT_VIEWS: FIT_VIEWS };
+  return { build: build, draw: draw, layout: layout, viewFit: viewFit, bioLabel: bioLabel, LABEL_PX: LABEL_PX, ELEVATION: ELEVATION, FIT_VIEWS: FIT_VIEWS };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Sketch3D;
