@@ -62,12 +62,13 @@ var UI = (function () {
   }
 
   /*
-   * Схема ставка зверху в реальних пропорціях + біоплато праворуч.
+   * Схема ставка зверху в реальних пропорціях + біоплато з вибраного боку.
+   * bioOpt = { side: 'right' | 'bottom' | 'left' | 'top', joined } — joined: біоплато «Разом» (впритул, одне дзеркало, D56).
    * overlay (Про-режим, необов'язково) — у координатах плану, м:
    *   layers: [{ rings: [[[x, y], …], …], rank, active, error }] — сходинки (rank 0 — наймілкіша);
    *   points: [{ id, p: [x, y], selected }] — точки активної сходинки, їх натискають (data-point).
    */
-  function drawSketch(svg, shape, m, overlay, bioSide) {
+  function drawSketch(svg, shape, m, overlay, bioOpt) {
     var NS = 'http://www.w3.org/2000/svg';
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     // Згори — смуга 40 px під перемикач 2D/3D; поле малювання те саме, що й раніше (320 × 150)
@@ -90,8 +91,11 @@ var UI = (function () {
     var withPts = ov.points.length > 0;
 
     // Біоплато — з вибраного боку (PondGeo.bioRect, те саме, що в 3D); підписи розмірів — на вільному боці
-    var side = m.hasBio ? (bioSide || 'right') : 'right';
-    var br = m.hasBio ? PondGeo.bioRect(m.L, m.W, { L: m.Lb, W: m.Wb }, side) : null;
+    bioOpt = bioOpt || {};
+    var side = m.hasBio ? (bioOpt.side || 'right') : 'right';
+    // «Разом»: спільний контур дзеркала, мілка зона біоплато і шов по стінці ставка (PondGeo.bioJoin, те саме в 3D)
+    var jn = m.hasBio && bioOpt.joined ? PondGeo.bioJoin(shape, m.L, m.W, { L: m.Lb, W: m.Wb }, side) : null;
+    var br = jn ? jn.rect : m.hasBio ? PondGeo.bioRect(m.L, m.W, { L: m.Lb, W: m.Wb }, side) : null;
     var labelTop = side === 'bottom', labelRight = side === 'left';   // «L м» над ставком, «W м» праворуч
     // Поле малювання: місце під підписи ширини й довжини (з точками — трохи більше)
     var sideM = withPts ? 50 : 44, thinM = withPts ? 14 : 10;
@@ -107,7 +111,13 @@ var UI = (function () {
     var y0 = top + (availH - (ymax - ymin) * scale) / 2 - ymin * scale;
     function X(p) { return (x0 + p[0] * scale).toFixed(1) + ' ' + (y0 + p[1] * scale).toFixed(1); }
 
-    if (shape === 'oval') {
+    function ringD(ring) { return 'M' + ring.map(X).join('L') + 'Z'; }
+    if (jn) {
+      // Одне дзеркало: ставок + біоплато одним контуром; біоплато — мілка зона («пісок»), шов — пунктир
+      node('path', { d: ringD(jn.union), 'class': 'sk-water' + (shape === 'custom' ? ' sk-water--custom' : '') });
+      node('path', { d: ringD(jn.zone), 'class': 'sk-bio-zone' });
+      node('path', { d: 'M' + jn.seam.map(X).join('L'), 'class': 'sk-bio-seam' });
+    } else if (shape === 'oval') {
       node('ellipse', { cx: x0 + w / 2, cy: y0 + h / 2, rx: w / 2, ry: h / 2, 'class': 'sk-water' });
     } else if (shape === 'custom') {
       // Нестандартна форма — умовно: сильно заокруглений контур пунктиром
@@ -119,7 +129,7 @@ var UI = (function () {
 
     // Сходинки: від глибокої до мілкої — мілкіша лягає зверху (у спільній зоні діє вона, D33)
     ov.layers.slice().sort(function (a, b) { return b.rank - a.rank; }).forEach(function (l) {
-      var d = l.rings.map(function (ring) { return 'M' + ring.map(X).join('L') + 'Z'; }).join('');
+      var d = l.rings.map(ringD).join('');
       node('path', { d: d, 'fill-rule': 'evenodd', 'fill-opacity': [0.5, 0.34, 0.22][Math.min(2, l.rank)],
         'class': 'sk-step' + (l.active ? ' is-active' : '') + (l.error ? ' is-error' : '') });
     });
@@ -136,7 +146,7 @@ var UI = (function () {
 
     if (br) {
       var bx = x0 + br[0] * scale, by = y0 + br[1] * scale, bw = br[2] * scale, bh = br[3] * scale;
-      node('rect', { x: bx, y: by, width: bw, height: bh, rx: 2, ry: 2, 'class': 'sk-bio' });
+      if (!jn) node('rect', { x: bx, y: by, width: bw, height: bh, rx: 2, ry: 2, 'class': 'sk-bio' }); // «Окремо» — пунктирний котлован
       if (side === 'right' || side === 'left') {                  // підпис під біоплато
         node('text', { x: bx + bw / 2, y: by + bh + 17, 'text-anchor': 'middle', 'class': 'sk-label' }, bw > 56 ? 'біоплато' : 'біо');
       } else {                                                    // згори / знизу — збоку від біоплато

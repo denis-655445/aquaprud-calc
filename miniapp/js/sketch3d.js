@@ -44,9 +44,10 @@ var Sketch3D = (function () {
    * (інакше напис лягає на сам ставок). Повертає точку прив'язки в екранних координатах креслення, м.
    */
   function bioLabelAnchor(scene, cam) {
-    var bio = pitById(scene, 'bio'), pond = pitById(scene, 'pond');
+    // Ділянка біоплато: окремий котлован або мілка зона спільного дзеркала («Разом», D56)
+    var bio = scene.bio;
     if (!bio) return null;
-    var bc = bboxCenter(bio.outline), pc = bboxCenter(pond.outline);
+    var bc = bboxCenter(bio.outline), pc = bboxCenter(scene.pondOutline || pitById(scene, 'pond').outline);
     // Біоплато ближче до глядача, ніж ставок → воно «спереду»
     var front = (bc[0] - pc[0]) * cam.c[0] + (bc[1] - pc[1]) * cam.c[1] > 0;
     var mid = PondGeo.project(cam, bc[0], bc[1], 0);
@@ -137,7 +138,7 @@ var Sketch3D = (function () {
   }
 
   /*
-   * opts = { shape, L, W, D, bio: { L, W, depth } | null, levels: [{ poly, holes, depth }], azimuth, fast,
+   * opts = { shape, L, W, D, bio: { L, W, depth, side, joined } | null, levels: [{ poly, holes, depth }], azimuth, fast,
    *          box: { w, hMax } — ширина блока і найбільша висота, px,
    *          avoid: { top: [{ x0, x1, y1 }], bottom: [{ x0, x1, h }] } — кнопки поверх схеми, px,
    *          fs — множник розміру тексту }
@@ -196,7 +197,8 @@ var Sketch3D = (function () {
       // Сходинки: від глибокої до мілкої (порядок уже в render), кільце — з діркою
       r.fills.filter(function (f) { return f.pit === pit.id && f.kind === 'level'; }).forEach(function (f) {
         var d = pathD(mapPts(f.pts), true) + f.holes.map(function (h) { return pathD(mapPts(h), true); }).join('');
-        items.push({ tag: 'path', attrs: { d: d, 'fill-rule': 'evenodd', 'class': 's3-level', 'clip-path': 'url(#' + clipId + ')' } });
+        // f.water — ставок як «рівень» під глибшим біоплато «Разом»: заливка водою, як дно
+        items.push({ tag: 'path', attrs: { d: d, 'fill-rule': 'evenodd', 'class': f.water ? 's3-floor' : 's3-level', 'clip-path': 'url(#' + clipId + ')' } });
       });
     });
 

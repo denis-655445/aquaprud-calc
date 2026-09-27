@@ -30,6 +30,13 @@ var Sketch3DTests = (function () {
         var below = [135, 225, 315, 45].map(function (az) { return S.bioLabelAnchor(sc, G.camera(az, S.ELEVATION)).below; });
         return below.join() === 'false,false,true,true';
       }],
+      ['Біоплато «Разом» (D56): підпис є, один котлован, висота ≤ hMax', function () {
+        var o = { shape: 'oval', L: 10, W: 5, D: 3, bio: { L: 4, W: 1, depth: 0.3, side: 'right', joined: true },
+                  azimuth: 135, box: { w: 360, hMax: 360 }, avoid: avoid, fs: 1 };
+        var m = S.build(o), sc = G.buildScene(o);
+        var hasLabel = m.items.some(function (it) { return it.tag === 'text' && it.text === 'біоплато'; });
+        return hasLabel && sc.pits.length === 1 && !!S.bioLabelAnchor(sc, G.camera(135, S.ELEVATION)) && m.height <= 360;
+      }],
       ['Масштаб і висота однакові в усіх 4 ракурсах (схема не стрибає)', function () {
         var vb = [135, 225, 315, 45].map(function (az) { return model(az).viewBox; });
         return vb.every(function (v) { return v === vb[0]; });

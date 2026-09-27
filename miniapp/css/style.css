@@ -164,6 +164,9 @@ select.input {
 .sk-water { fill: var(--water-fill); stroke: var(--water); stroke-width: 2; }
 .sk-water--custom { stroke-dasharray: 6 4; }
 .sk-bio { fill: none; stroke: var(--water); stroke-width: 1.5; stroke-dasharray: 3 3; }
+/* Біоплато «Разом» (D56): мілка зона спільного дзеркала — «пісок», як сходинки; шов зі ставком — пунктир */
+.sk-bio-zone { fill: var(--ground); fill-opacity: 0.34; }
+.sk-bio-seam { fill: none; stroke: var(--water); stroke-width: 1.2; stroke-dasharray: 3 3; }
 .sk-label { fill: var(--hint); font-size: calc(12px * var(--fs)); font-variant-numeric: tabular-nums; }
 .sk-label--in { fill: var(--water); }
 .sk-hint { fill: var(--hint); font-size: calc(13px * var(--fs)); }
@@ -211,15 +214,16 @@ select.input {
 .switch input:checked + .switch__track::after { transform: translateX(18px); }
 .switch input:focus-visible + .switch__track { outline: 2px solid var(--button); outline-offset: 2px; }
 
-/* ===== Біоплато: ‹ сторона › поруч із перемикачем ===== */
-.bio-side { display: inline-flex; align-items: center; gap: 4px; margin-left: 14px; }
+/* ===== Біоплато: ‹ › притиснуті до правого краю рядка (margin-left: auto у flex-рядку .switch) ===== */
+.bio-side { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; padding-left: 14px; }
 .bio-side__btn {
   display: grid; place-items: center; width: 36px; height: 36px; padding: 0;
   border: 1px solid var(--line); border-radius: 50%; background: var(--bg); color: var(--text); cursor: pointer;
 }
 .bio-side__btn:active { opacity: 0.6; }
 .bio-side__btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
-.bio-side__label { min-width: 64px; text-align: center; color: var(--hint); font-size: calc(13px * var(--fs)); }
+/* Приховано з екрана, але доступно програмам читання екрана */
+.vh { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 /* ===== Плавне розкриття (біоплато, коментарі): висоту в px анімує ui.js ===== */
 .collapse { height: 0; overflow: hidden; opacity: 0; transition: height 0.32s cubic-bezier(0.2, 0.7, 0.2, 1), opacity 0.25s ease; }

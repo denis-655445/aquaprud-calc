@@ -15,7 +15,8 @@
   // null = значення з «Налаштувань»; fontScale — розмір тексту (1 / 1.15 / 1.3), не скидається «Новим кошторисом»
   // scene — вид схеми: '2d' / '3d' і номер ракурсу 0–3 (теж не скидається)
   // pro — Про-режим зі сходинками (D46): вмикається в службовій панелі й не скидається «Новим кошторисом»
-  var service = { labor_pct: null, markup_pct: null, hidePrices: false, fontScale: 1, scene: { mode: '2d', view: 0 }, pro: false };
+  // bioJoin — біоплато на схемі «Разом» (впритул, одне дзеркало, D56): лише вигляд, теж не скидається
+  var service = { labor_pct: null, markup_pct: null, hidePrices: false, fontScale: 1, scene: { mode: '2d', view: 0 }, pro: false, bioJoin: false };
   var FONT_SCALES = [1, 1.15, 1.3];
   var lastEst = null;
   var lastMetrics = null;  // метрики останнього розрахунку — для перемальовування схеми під час повороту
@@ -132,6 +133,7 @@
     if (PondGeo.BIO_SIDES.indexOf(state.inputs.bioSide) === -1) state.inputs.bioSide = 'right';
     // Сходинки з чернетки: лише масив об'єктів і не більше за steps_max
     service.pro = !!service.pro;
+    service.bioJoin = !!service.bioJoin;
     var steps = Array.isArray(state.inputs.steps) ? state.inputs.steps : [];
     state.inputs.steps = steps.filter(function (st) { return st && typeof st === 'object'; }).slice(0, stepsMax()).map(function (st) {
       return { type: ['shelf', 'platform', 'corner'].indexOf(st.type) === -1 ? 'shelf' : st.type,
@@ -184,6 +186,7 @@
     $('comment').value = state.comment;
     syncNotes();
     $('hidePrices').checked = !!service.hidePrices;
+    syncBioJoin();
     applyFontScale();
   }
 
@@ -628,7 +631,7 @@
     $('sceneCaption').hidden = !(is3d && dims);
     if (!is3d) {
       tweenScene = false; shownFit = null; fitTween = null;   // перехід масштабу — лише для 3D
-      UI.drawSketch($('sketch'), state.inputs.shape, m, sketchOverlay(m), state.inputs.bioSide);
+      UI.drawSketch($('sketch'), state.inputs.shape, m, sketchOverlay(m), { side: state.inputs.bioSide, joined: service.bioJoin });
       return;
     }
 
@@ -647,7 +650,7 @@
     var bioDepth = Calc.num(catalog.settings.bio_depth_m);
     var o = {
       shape: state.inputs.shape, L: m.L, W: m.W, D: m.D,
-      bio: m.hasBio ? { L: m.Lb, W: m.Wb, depth: bioDepth, side: state.inputs.bioSide } : null,
+      bio: m.hasBio ? { L: m.Lb, W: m.Wb, depth: bioDepth, side: state.inputs.bioSide, joined: service.bioJoin } : null,
       levels: sceneLevels(m), fast: !!fromAnim,
       azimuth: sceneAz, views: VIEW_AZ,
       box: sceneBox.box, avoid: sceneBox.avoid, fs: Number(service.fontScale) || 1
@@ -978,6 +981,17 @@
       });
     });
     $('hidePrices').addEventListener('change', function (e) { service.hidePrices = e.target.checked; changed(); });
+    // Біоплато на схемі «Разом / Окремо» (D56): лише вигляд 2D / 3D — перераховувати кошторис не треба
+    document.querySelectorAll('[data-biojoin]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        service.bioJoin = b.dataset.biojoin === '1';
+        syncBioJoin();
+        tweenScene = true;                                 // 3D плавно змінює масштаб (D55)
+        haptic('select');
+        saveDraft();
+        drawScene();
+      });
+    });
     $('serviceDone').addEventListener('click', closeService);
     // Клік по затемненню закриває панель, але не в перші 500 мс (палець щойно відпустили після довгого натискання)
     $('service').addEventListener('click', function (e) {
@@ -994,7 +1008,15 @@
   var BIO_SIDE_NAMES = { right: 'праворуч', bottom: 'знизу', left: 'ліворуч', top: 'зверху' };
   function syncBioSide() {
     $('bioSide').hidden = !state.inputs.bio;
-    $('bioSideLabel').textContent = BIO_SIDE_NAMES[state.inputs.bioSide] || BIO_SIDE_NAMES.right;
+    // Слово на екрані не показуємо (сторону видно на схемі) — лише для програм читання екрана
+    $('bioSideLabel').textContent = 'Біоплато ' + (BIO_SIDE_NAMES[state.inputs.bioSide] || BIO_SIDE_NAMES.right);
+  }
+
+  // Службова панель: яка кнопка «Разом / Окремо» натиснута
+  function syncBioJoin() {
+    document.querySelectorAll('[data-biojoin]').forEach(function (b) {
+      b.setAttribute('aria-pressed', String((b.dataset.biojoin === '1') === !!service.bioJoin));
+    });
   }
 
   // ---------- Коментарі й розмір тексту ----------
