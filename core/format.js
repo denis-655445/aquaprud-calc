@@ -97,7 +97,7 @@ var Format = (function () {
   /*
    * Текст кошторису для копіювання в чат.
    * est — результат Calc.buildEstimate; inp — параметри ставка;
-   * extra — { client, clientComment, currency, isTest, date }.
+   * extra — { client, clientComment, currency, isTest, date, number }.
    * clientComment — коментар для клієнта (потрапляє в текст).
    * Коментар «для себе» сюди НЕ передаємо: він лише для майстра (піде в CRM на етапі A4).
    */
@@ -108,7 +108,8 @@ var Format = (function () {
     var out = [];
 
     if (e.isTest) out.push('⚠️ ТЕСТОВІ ЦІНИ — не для клієнта', '');
-    out.push('Кошторис Aquaprud від ' + date(e.date || new Date()));
+    // Номер (A4) — лише коли кошторис уже записано в таблицю
+    out.push('Кошторис Aquaprud ' + (e.number ? '№ ' + e.number + ' ' : '') + 'від ' + date(e.date || new Date()));
 
     // Дані клієнта — лише заповнені поля
     var c = e.client || {};

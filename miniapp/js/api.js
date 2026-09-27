@@ -77,5 +77,39 @@ var Api = (function () {
       });
   }
 
-  return { loadCatalog: loadCatalog, initData: initData };
+  // Бекенд доступний: є адреса і застосунок відкрито з Telegram (без initData сервер відмовить)
+  function online() { return !!(CONFIG.API_BASE && initData()); }
+
+  // Відповідь { ok: false, … } → помилка з типом (auth / validation / internal)
+  function unwrap(res) {
+    if (!res || !res.ok) throw fail((res && res.error) || 'server', (res && res.message) || 'помилка сервера');
+    return res;
+  }
+
+  /*
+   * Запис кошторису в CRM (A4) → { number, created, notified }.
+   * text/plain — без попереднього запиту CORS (Apps Script його не підтримує); відповідь приходить після
+   * переадресації Google, fetch іде за нею сам
+   */
+  function saveEstimate(payload) {
+    if (!online()) return Promise.reject(fail('offline', 'поза Telegram запис у таблицю недоступний'));
+    var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, TIMEOUT_NO_CACHE);
+    var opts = { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                 body: JSON.stringify({ action: 'saveEstimate', initData: initData(), payload: payload }) };
+    if (ctrl) opts.signal = ctrl.signal;
+    return fetch(CONFIG.API_BASE, opts)
+      .then(function (r) { if (!r.ok) throw fail('net', 'сервер відповів ' + r.status); return r.json(); })
+      .catch(function (err) { if (err.kind) throw err; throw fail('net', err.name === 'AbortError' ? 'сервер не відповів' : 'немає зв\'язку'); })
+      .then(function (res) { clearTimeout(timer); return unwrap(res); }, function (err) { clearTimeout(timer); throw err; });
+  }
+
+  // Кошторис з таблиці за номером (кнопка «Відкрити в калькуляторі» в чаті) → збережений запит
+  function getEstimate(number) {
+    if (!online()) return Promise.reject(fail('offline', 'поза Telegram таблиця недоступна'));
+    var url = CONFIG.API_BASE + '?action=estimate&number=' + encodeURIComponent(number) + '&initData=' + encodeURIComponent(initData());
+    return fetchJson(url, TIMEOUT_NO_CACHE).then(function (res) { return unwrap(res).estimate; });
+  }
+
+  return { loadCatalog: loadCatalog, initData: initData, online: online, saveEstimate: saveEstimate, getEstimate: getEstimate };
 })();

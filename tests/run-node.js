@@ -22,7 +22,9 @@ var Sha256 = require('./sha256.js');               // порт HMAC для те�
 var SHEET = require('./fixtures/sheet.sample.js');
 var AuthTests = require('./auth.tests.js');
 var CatalogTests = require('./catalog.tests.js');
-var GasTests = require('./gas.tests.js');          // лише Node: адаптер Apps Script з імітацією сервісів Google
+var GasTests = require('./gas.tests.js');
+var Estimate = require('../core/estimate.js');     // A4 (v0.9.0): кошторис для CRM, архів, черга
+var EstimateTests = require('./estimate.tests.js');          // лише Node: адаптер Apps Script з імітацією сервісів Google
 
 // Налаштування для тестів укосу: запас плівки 0,5 м, овал — π/4
 var SLOPE_SETTINGS = { film_margin_m: 0.5, shape_k_oval: 0.785, bio_depth_m: 0.3 };
@@ -36,6 +38,7 @@ var results = CalcTests.run(Calc, Format, SAMPLE)
   .concat(SlopeTests.run(Slope, Calc, PondGeo, SLOPE_SETTINGS))
   .concat(AuthTests.run(Auth, Sha256))
   .concat(CatalogTests.run(CatalogCore, Calc, SHEET))
+  .concat(EstimateTests.run(Estimate, Calc, Format, SAMPLE))
   .concat(GasTests.run(AuthTests, Sha256, SHEET));
 results.forEach(function (r) {
   console.log((r.ok ? 'OK   ' : 'FAIL ') + r.name + (r.error ? ' — ' + r.error : ''));

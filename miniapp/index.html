@@ -9,7 +9,7 @@
   <!-- SDK Telegram Mini Apps: дає Telegram.WebApp (тема, кнопки, вібровідгук) -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <!-- ?v=N — версія файлу: змінюємо при кожному оновленні, бо Telegram кешує Mini App -->
-  <link rel="stylesheet" href="css/style.css?v=13">
+  <link rel="stylesheet" href="css/style.css?v=14">
   <!-- Тема (v0.7.1) — до першого малювання, щоб екран не блимав світлим: читаємо з чернетки (ключ — CONFIG.DRAFT_KEY) -->
   <script>
     (function () {
@@ -344,12 +344,30 @@
           </div>
         </div>
       </div>
+
+      <!-- Запис у CRM (v0.9.0, A4): лише за прапорцем і з ім'ям клієнта; без зв'язку — черга -->
+      <div class="switch crm-switch">
+        <label class="switch__control">
+          <input id="crmToggle" type="checkbox" aria-describedby="crmStatus">
+          <span class="switch__track" aria-hidden="true"></span>
+          <span class="switch__text">У таблицю (CRM)</span>
+        </label>
+      </div>
+      <p id="crmStatus" class="hint crm-status" aria-live="polite"></p>
     </section>
 
     <div class="actions">
       <button id="btnShare" type="button" class="btn btn--secondary">Надіслати в Telegram</button>
+      <button id="btnVariant" type="button" class="btn btn--secondary">Варіант для цього клієнта</button>
       <button id="btnReset" type="button" class="btn btn--ghost">Новий кошторис</button>
     </div>
+
+    <!-- Архів кошторисів у телефоні (v0.9.0): натискання — відкрити -->
+    <section class="block" aria-labelledby="h-archive">
+      <h2 id="h-archive" class="block__title">Архів <span id="archiveCount" class="archive__count"></span></h2>
+      <div id="archiveList" class="archive"></div>
+      <p class="hint archive__hint">📱 — лише в телефоні, ⏳ — чекає запису в таблицю, ✅ — у таблиці. Найстаріші видаляються самі; ті, що чекають запису, — ні.</p>
+    </section>
     <p id="footer" class="footer"></p>
   </main>
 
@@ -433,16 +451,17 @@
   </div>
 
   <!-- Порядок важливий: конфіг → дані → ядро → API → інтерфейс → запуск -->
-  <script src="js/config.js?v=13"></script>
-  <script src="../data/catalog.sample.js?v=13"></script>
-  <script src="../core/calc.js?v=13"></script>
-  <script src="../core/format.js?v=13"></script>
-  <script src="../core/pondgeo.js?v=13"></script>
-  <script src="../core/stairs.js?v=13"></script>
-  <script src="../core/slope.js?v=13"></script>
-  <script src="js/api.js?v=13"></script>
-  <script src="js/ui.js?v=13"></script>
-  <script src="js/sketch3d.js?v=13"></script>
-  <script src="js/app.js?v=13"></script>
+  <script src="js/config.js?v=14"></script>
+  <script src="../data/catalog.sample.js?v=14"></script>
+  <script src="../core/calc.js?v=14"></script>
+  <script src="../core/format.js?v=14"></script>
+  <script src="../core/pondgeo.js?v=14"></script>
+  <script src="../core/stairs.js?v=14"></script>
+  <script src="../core/slope.js?v=14"></script>
+  <script src="../core/estimate.js?v=14"></script>
+  <script src="js/api.js?v=14"></script>
+  <script src="js/ui.js?v=14"></script>
+  <script src="js/sketch3d.js?v=14"></script>
+  <script src="js/app.js?v=14"></script>
 </body>
 </html>

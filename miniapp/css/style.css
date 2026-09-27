@@ -381,3 +381,15 @@ body.typing .totalbar { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .switch__track, .switch__track::after, .collapse { transition: none; }
 }
+
+/* ===== Запис у CRM і архів (v0.9.0) ===== */
+.crm-switch { margin: 12px 0 0; }
+.crm-status { margin-top: 2px; font-size: calc(14px * var(--fs)); }
+.archive { display: grid; gap: 6px; }
+.archive__count { color: var(--hint); font-weight: 400; font-size: 0.8em; }
+.archive__item { display: grid; gap: 2px; width: 100%; padding: 10px 12px; text-align: left; border: 1px solid var(--line);
+  border-radius: 10px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.archive__item.is-current { border-color: var(--water); box-shadow: inset 3px 0 0 var(--water); }
+.archive__name { font-weight: 600; overflow-wrap: anywhere; }
+.archive__meta { color: var(--hint); font-size: calc(13px * var(--fs)); }
+.archive__hint { margin-top: 8px; font-size: calc(13px * var(--fs)); }

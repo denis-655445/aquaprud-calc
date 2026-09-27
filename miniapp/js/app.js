@@ -26,6 +26,7 @@
   var BIO_MAX = 4;                      // до 4 ділянок біоплато — по одній на сторону
   var FONT_SCALES = [1, 1.15, 1.3];
   var lastEst = null;
+  var lastSel = null;      // остаточний вибір обладнання (назви — у рядок CRM)
   var lastMetrics = null;  // метрики останнього розрахунку — для перемальовування схеми під час повороту
   // 3D: 4 ракурси по діагоналі; › повертає глядача за годинниковою стрілкою (+90°)
   var VIEW_AZ = [135, 225, 315, 45];
@@ -109,13 +110,26 @@
 
   // ---------- Чернетка ----------
   // Зберігаємо із затримкою 300 мс, щоб не писати в пам'ять на кожну літеру
+  // v0.9.0: разом з чернеткою оновлюється поточний кошторис в архіві (persistNow)
   function saveDraft() {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(function () {
-      try {
-        localStorage.setItem(CONFIG.DRAFT_KEY, JSON.stringify({ v: 1, state: state, service: service }));
-      } catch (e) { /* пам'ять недоступна — працюємо без чернетки */ }
-    }, 300);
+    saveTimer = setTimeout(persistNow, 300);
+  }
+
+  function writeDraft() {
+    try {
+      localStorage.setItem(CONFIG.DRAFT_KEY, JSON.stringify({ v: 1, state: state, service: service }));
+    } catch (e) { /* пам'ять недоступна — працюємо без чернетки */ }
+  }
+
+  // Збережений стан → повний стан кошторису (нові поля — зі значень за замовчуванням)
+  function mergeState(saved) {
+    var def = defaultState();
+    Object.keys(def).forEach(function (k) {
+      if (typeof def[k] === 'object') def[k] = Object.assign({}, def[k], saved[k] || {});
+      else if (saved[k] !== undefined) def[k] = saved[k];
+    });
+    return def;
   }
 
   function restoreDraft() {
@@ -124,14 +138,227 @@
       if (!raw) return;
       var d = JSON.parse(raw);
       if (!d || d.v !== 1 || !d.state) return;
-      var def = defaultState();
-      Object.keys(def).forEach(function (k) {
-        if (typeof def[k] === 'object') def[k] = Object.assign({}, def[k], d.state[k] || {});
-        else if (d.state[k] !== undefined) def[k] = d.state[k];
-      });
-      state = def;
+      state = mergeState(d.state);
       service = Object.assign(service, d.service || {});
     } catch (e) { /* пошкоджена чернетка — починаємо з чистого */ }
+  }
+
+  // ---------- Архів кошторисів і запис у CRM (v0.9.0, A4) ----------
+  // Архів — у пам'яті телефона: поточний кошторис оновлюється сам, «Новий кошторис» лишає попередній тут.
+  // Прапорець «У таблицю» ставить кошторис у чергу; черга відправляється, коли застосунок відкритий і є зв'язок
+  var archive = { current: null, items: [] };
+  var syncing = false, syncTimer = null, syncError = '';
+  var SYNC_FIRST_MS = 3000;    // перший запис після прапорця / імені — майже одразу
+  var SYNC_EDIT_MS = 60000;    // зміни в уже записаному — через хвилину тиші (менше повідомлень «Оновлено» в чаті)
+  var SYNC_RETRY_MS = 30000;   // немає зв'язку — пробуємо знову
+
+  function clone(x) { return JSON.parse(JSON.stringify(x)); }
+  function curItem() { return findItem(archive.current); }
+  function findItem(uid) { return archive.items.filter(function (it) { return it.uid === uid; })[0] || null; }
+
+  function loadArchive() {
+    try {
+      var a = JSON.parse(localStorage.getItem(CONFIG.ARCHIVE_KEY) || 'null');
+      if (a && Array.isArray(a.items)) archive = { current: a.current, items: a.items.filter(function (it) { return it && it.uid && it.state; }) };
+    } catch (e) { /* пошкоджений архів — починаємо з порожнього */ }
+  }
+
+  function writeArchive() {
+    try { localStorage.setItem(CONFIG.ARCHIVE_KEY, JSON.stringify(archive)); } catch (e) { /* пам'ять повна — лишається чернетка */ }
+  }
+
+  // Новий запис архіву з поточного стану (sig — щоб перше збереження не рахувалося зміною)
+  function newItem(st, svc) {
+    var now = Date.now();
+    return { uid: Estimate.uid(), created: now, updated: now, rev: 0, state: clone(st), svc: clone(svc),
+             snap: null, crm: false, number: null, syncedRev: 0, err: '' };
+  }
+
+  function curSvc() { return { labor_pct: service.labor_pct, markup_pct: service.markup_pct }; }
+
+  // Готовий запит для таблиці зі знімком цін (D6); null — без розмірів ставка рахувати нічого
+  function buildSnap() {
+    if (!lastEst || !lastSel) return null;
+    var name = function (id) { var it = Calc.findItem(catalog, id); return it ? it.name : ''; };
+    var c = state.client, inp = calcInputs();
+    var pump = lastSel.pumpId === 'kit' ? 'у комплекті з фільтром' : lastSel.pumpId === 'none' ? '' : name(lastSel.pumpId);
+    return {
+      summary: Estimate.summary(lastEst, inp, {
+        client: c, comment: state.comment, appVersion: CONFIG.APP_VERSION,
+        phoneText: Format.phoneComplete(c.phone, c.phoneCountry) ? Format.phoneFormat(c.phone, c.phoneCountry) : '',
+        filmName: name(lastSel.filmId), filterName: name(lastSel.filterId), uvName: name(lastSel.uvId), pumpName: pump,
+        skimmers: lastSel.skimmers, drains: lastSel.drains
+      }),
+      client: c, inputs: inp, lines: lastEst.lines, totals: lastEst.totals,
+      comment: state.comment, clientComment: state.clientComment,
+      text: estimateText(true), app_version: CONFIG.APP_VERSION, catalog_version: catalog.version
+    };
+  }
+
+  // Відбиток змін: розгортання коментарів і вибрана сходинка — не зміна кошторису
+  function sigOf(st, svc, snap) {
+    var s2 = Object.assign({}, st); delete s2.notes; delete s2.stepActive;
+    return JSON.stringify([s2, svc, snap ? [snap.summary, snap.lines, snap.totals] : null]);
+  }
+
+  // Поточний кошторис → архів; bump = false — без позначки «змінено» (перше відкриття)
+  function updateCurrent(bump) {
+    var it = curItem();
+    if (!it) { it = newItem(state, curSvc()); archive.items.push(it); archive.current = it.uid; bump = false; }
+    var svc = curSvc(), snap = buildSnap(), sig = sigOf(state, svc, snap);
+    if (sig === it.sig) return;
+    it.state = clone(state); it.svc = svc; it.snap = snap; it.sig = sig;
+    if (bump) { it.rev = (it.rev || 0) + 1; it.updated = Date.now(); it.err = ''; }
+  }
+
+  function persistNow() {
+    clearTimeout(saveTimer);
+    writeDraft();
+    updateCurrent(true);
+    // Порожні записи (ні розмірів, ні імені) не тримаємо — крім поточного
+    archive.items = archive.items.filter(function (it) { return it.uid === archive.current || it.crm || !isBlank(mergeState(it.state)); });
+    archive.items = Estimate.prune(archive.items, CONFIG.ARCHIVE_MAX, archive.current);
+    writeArchive();
+    renderCrm();
+    var it = curItem();
+    if (it && Estimate.needsSync(it)) scheduleSync(Estimate.syncState(it) === 'queued' ? SYNC_FIRST_MS : SYNC_EDIT_MS);
+  }
+
+  // Порожній кошторис (немає ні розмірів, ні імені) — «Новий кошторис» не плодить порожніх записів
+  function isBlank(st) {
+    var i = st.inputs;
+    return !String(i.L).trim() && !String(i.W).trim() && !String(i.D).trim() && !String(st.client.name).trim();
+  }
+
+  // Показати інший кошторис з архіву: поточний спершу зберігаємо
+  function switchTo(uid) {
+    persistNow();
+    var it = findItem(uid);
+    if (!it) return;
+    archive.current = uid;
+    archive.items = archive.items.filter(function (x) { return x.uid === uid || x.crm || !isBlank(mergeState(x.state)); });
+    state = mergeState(clone(it.state));
+    service.labor_pct = it.svc ? it.svc.labor_pct : null;
+    service.markup_pct = it.svc ? it.svc.markup_pct : null;
+    validateIds();
+    syncForm();
+    recalc();
+    writeDraft();
+    writeArchive();
+    renderCrm();
+    window.scrollTo(0, 0);
+    scheduleSync(0);
+  }
+
+  // Новий запис архіву з даного стану і перехід на нього
+  function startItem(st, svc) {
+    persistNow();
+    var it = newItem(st, svc);
+    archive.items.push(it);
+    archive.current = it.uid;
+    state = mergeState(clone(st));
+    service.labor_pct = svc.labor_pct;
+    service.markup_pct = svc.markup_pct;
+    validateIds();
+    syncForm();
+    recalc();
+    persistNow();
+    window.scrollTo(0, 0);
+    scheduleSync(0);
+  }
+
+  function scheduleSync(ms) {
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(syncNow, ms);
+  }
+
+  // Черга: по одному кошторису, найстаріша зміна першою
+  function syncNow() {
+    if (syncing || !Api.online()) return;
+    var cur = curItem();
+    if (cur && Estimate.needsSync(cur)) persistNow();             // незбережені 300 мс змін — теж у запит
+    var it = Estimate.nextToSync(archive.items);
+    if (!it) return;
+    syncing = true;
+    renderCrm();
+    var rev = it.rev, uid = it.uid;
+    var payload = Object.assign({}, it.snap, { uid: uid, app_state: { state: it.state, svc: it.svc } });
+    Api.saveEstimate(payload).then(function (res) {
+      syncing = false; syncError = '';
+      var x = findItem(uid);
+      if (x) { x.number = res.number; x.syncedRev = Math.max(x.syncedRev || 0, rev); }
+      writeArchive();
+      if (uid === archive.current) haptic('success');
+      renderCrm();
+      scheduleSync(0);                                             // наступний у черзі
+    }).catch(function (err) {
+      syncing = false;
+      var x = findItem(uid);
+      if (err.kind === 'validation' && x) { x.err = err.message; writeArchive(); scheduleSync(0); } // лише цей кошторис
+      else { syncError = err.message; scheduleSync(SYNC_RETRY_MS); }                                  // зв'язок / доступ / сервер
+      renderCrm();
+    });
+  }
+
+  // Рядок стану під перемикачем «У таблицю» і список архіву
+  function renderCrm() {
+    var it = curItem();
+    if (!it) return;
+    $('crmToggle').checked = !!it.crm;
+    var st = Estimate.syncState(it), t;
+    if (it.err) t = '⚠️ ' + it.err + '. Виправте кошторис — запис повториться.';
+    else if (st === 'local') t = 'Лише в телефоні.';
+    else if (st === 'noname') t = it.snap ? 'Вкажіть ім\'я клієнта — без нього кошторис не піде в таблицю.' : 'Спершу введіть розміри ставка.';
+    else if (st === 'synced') t = '✅ У таблиці: ' + it.number + '.';
+    else if (syncing) t = 'Записую в таблицю…';
+    else t = '⏳ ' + (st === 'modified' ? it.number + ': зміни запишуться' : 'Кошторис запишеться') + ' в таблицю автоматично.';
+    if (!Api.online() && st !== 'local') t += ' Поза Telegram запис у таблицю недоступний.';
+    else if (syncError && (st === 'queued' || st === 'modified')) t += ' (' + syncError + ')';
+    $('crmStatus').textContent = t;
+    renderArchive();
+  }
+
+  function renderArchive() {
+    var list = $('archiveList');
+    list.textContent = '';
+    var p2 = function (n) { return (n < 10 ? '0' : '') + n; };
+    var badge = { local: '📱', noname: '⏳', queued: '⏳', modified: '⏳', synced: '✅' };
+    archive.items.slice().sort(function (a, b) { return b.updated - a.updated; }).forEach(function (it) {
+      var sm = it.snap && it.snap.summary, d = new Date(it.updated);
+      var name = String(it.state.client && it.state.client.name || '').trim() || 'Без імені';
+      var line2 = [sm ? sm.dims.replace(/\./g, ',').replace(/×/g, ' × ') + ' м' : 'без розмірів',
+                   sm ? moneyUI(it.snap.totals.total) : '',
+                   p2(d.getDate()) + '.' + p2(d.getMonth() + 1) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes())]
+        .filter(Boolean).join(' · ');
+      var btn = UI.el('button', 'archive__item' + (it.uid === archive.current ? ' is-current' : ''));
+      btn.type = 'button';
+      btn.dataset.uid = it.uid;
+      if (it.uid === archive.current) btn.setAttribute('aria-current', 'true');
+      var top = UI.el('span', 'archive__name', badge[Estimate.syncState(it)] + ' ' + name + (it.number ? ' · ' + it.number : ''));
+      btn.appendChild(top);
+      btn.appendChild(UI.el('span', 'archive__meta', line2));
+      list.appendChild(btn);
+    });
+    $('archiveCount').textContent = archive.items.length + ' з ' + CONFIG.ARCHIVE_MAX;
+  }
+
+  // Кнопка «Відкрити в калькуляторі» в чаті бота: ?open=AP-2026-014 → кошторис з таблиці
+  function openFromLink() {
+    var num = null;
+    try { num = new URLSearchParams(window.location.search).get('open'); } catch (e) { num = null; }
+    if (!num || !Api.online()) return;
+    var known = archive.items.filter(function (it) { return it.number === num; })[0];
+    if (known) { switchTo(known.uid); return; }                   // у телефоні — найсвіжіша версія
+    Api.getEstimate(num).then(function (est) {
+      var local = findItem(est.uid);
+      if (local) { switchTo(local.uid); return; }
+      var app = est.app_state || {};
+      var it = newItem(app.state || {}, app.svc || {});
+      delete est.app_state;
+      it.uid = est.uid; it.snap = est; it.crm = true; it.number = num; it.rev = 1; it.syncedRev = 1;
+      archive.items.push(it);
+      switchTo(it.uid);
+    }).catch(function (err) { alertMsg('Не вдалося відкрити кошторис ' + num + ': ' + err.message + '.'); });
   }
 
   // Прайс міг змінитися: id, яких більше немає, повертаємо до авто
@@ -318,6 +545,7 @@
       UI.renderWarnings($('warnings'), []);
       $('totalValue').textContent = '—';
       lastEst = null;
+      lastSel = null;
       return;
     }
 
@@ -343,6 +571,7 @@
     // Кошторис
     var est = Calc.buildEstimate(inp, sel, catalog, effectiveService());
     lastEst = est;
+    lastSel = sel;
     $('emptyHint').hidden = true;
     UI.renderWarnings($('warnings'), est.warnings);
     UI.renderLines($('lines'), est, moneyUI);
@@ -920,10 +1149,13 @@
   }
 
   // ---------- Дії ----------
-  function estimateText() {
+  // noNumber — текст для таблиці й чату: номер дає сервер і ставить у заголовок повідомлення
+  function estimateText(noNumber) {
+    var it = curItem();
     return Format.estimateText(lastEst, calcInputs(), {
       client: state.client, clientComment: state.clientComment, // коментар «для себе» не передаємо
-      currency: catalog.settings.currency, isTest: !!catalog.is_test, date: new Date()
+      currency: catalog.settings.currency, isTest: !!catalog.is_test, date: new Date(),
+      number: !noNumber && it && it.number ? it.number : ''     // номер з таблиці, якщо кошторис уже там
     });
   }
 
@@ -971,17 +1203,18 @@
     if (inTelegram) tg.openTelegramLink(link); else window.open(link, '_blank');
   }
 
+  // Новий кошторис: поточний лишається в архіві (v0.9.0), тому без підтвердження
   function onReset() {
-    confirmMsg('Почати новий кошторис? Введені дані буде очищено.', function (ok) {
-      if (!ok) return;
-      state = defaultState();
-      service.labor_pct = null;
-      service.markup_pct = null;
-      validateIds();
-      syncForm();
-      changed();
-      window.scrollTo(0, 0);
-    });
+    haptic('select');
+    if (isBlank(state)) { window.scrollTo(0, 0); return; }        // і так порожній
+    startItem(defaultState(), { labor_pct: null, markup_pct: null });
+  }
+
+  // Варіант: копія поточного кошторису з тим самим клієнтом, у таблицю — лише коли ввімкнете прапорець
+  function onVariant() {
+    if (isBlank(state)) { alertMsg('Спершу введіть розміри ставка або ім\'я клієнта.'); return; }
+    haptic('select');
+    startItem(state, curSvc());
   }
 
   // ---------- Події ----------
@@ -1199,6 +1432,27 @@
     $('btnCopy').addEventListener('click', onCopy);
     $('btnShare').addEventListener('click', onShare);
     $('btnReset').addEventListener('click', onReset);
+    $('btnVariant').addEventListener('click', onVariant);
+    // Архів: натискання на рядок — показати той кошторис
+    $('archiveList').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-uid]');
+      if (b && b.dataset.uid !== archive.current) { haptic('select'); switchTo(b.dataset.uid); }
+    });
+    // Прапорець «У таблицю»: вмикання ставить кошторис у чергу
+    $('crmToggle').addEventListener('change', function (e) {
+      var on = e.target.checked;                                   // до persistNow: той перемальовує перемикач
+      persistNow();
+      var it = curItem();
+      it.crm = on;
+      it.err = '';
+      haptic('select');
+      writeArchive();
+      renderCrm();
+      scheduleSync(0);
+    });
+    // Зв'язок з'явився / застосунок знову на екрані — пробуємо відправити чергу
+    window.addEventListener('online', function () { scheduleSync(0); });
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) scheduleSync(0); });
   }
 
   // ---------- Біоплато (v0.7.1): Bio-1 … Bio-4 ----------
@@ -1591,6 +1845,7 @@
       showLoadNote(res);                                  // збережена копія / помилки в прайсі (v0.8.0)
       buildForm();
       restoreDraft();
+      loadArchive();                                     // v0.9.0: архів кошторисів; чернетка — поточний
       validateIds();
       applyTheme();                                      // тема з чернетки (у <head> — те саме, до першого малювання)
       syncForm();
@@ -1600,6 +1855,13 @@
       $('app').hidden = false;
       $('totalBar').hidden = false;
       recalc();
+      // Архів: поточний кошторис (або перший запис зі старої чернетки) без позначки «змінено»
+      updateCurrent(false);
+      archive.items = Estimate.prune(archive.items, CONFIG.ARCHIVE_MAX, archive.current);
+      writeArchive();
+      renderCrm();
+      openFromLink();                                    // кнопка «Відкрити в калькуляторі» з чату
+      scheduleSync(1000);                                // черга, що лишилася з минулого разу
     }).catch(function (err) {
       $('loadNote').hidden = true;
       // Доступ (auth) — інтернет тут ні до чого; мережа / сервер — радимо перевірити зв'язок

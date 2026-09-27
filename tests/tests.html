@@ -17,27 +17,29 @@
   <ul id="list"></ul>
 
   <!-- Ті самі файли ядра, що й у застосунку -->
-  <script src="../core/calc.js?v=13"></script>
-  <script src="../core/format.js?v=13"></script>
-  <script src="../core/pondgeo.js?v=13"></script>
-  <script src="../core/stairs.js?v=13"></script>
-  <script src="../core/slope.js?v=13"></script>
-  <script src="../miniapp/js/sketch3d.js?v=13"></script>
-  <script src="../miniapp/js/ui.js?v=13"></script>
-  <script src="../data/catalog.sample.js?v=13"></script>
-  <script src="calc.tests.js?v=13"></script>
-  <script src="pondgeo.tests.js?v=13"></script>
-  <script src="stairs.core.tests.js?v=13"></script>
-  <script src="sketch3d.tests.js?v=13"></script>
-  <script src="plan2d.tests.js?v=13"></script>
-  <script src="slope.tests.js?v=13"></script>
+  <script src="../core/calc.js?v=14"></script>
+  <script src="../core/format.js?v=14"></script>
+  <script src="../core/pondgeo.js?v=14"></script>
+  <script src="../core/stairs.js?v=14"></script>
+  <script src="../core/slope.js?v=14"></script>
+  <script src="../miniapp/js/sketch3d.js?v=14"></script>
+  <script src="../miniapp/js/ui.js?v=14"></script>
+  <script src="../data/catalog.sample.js?v=14"></script>
+  <script src="calc.tests.js?v=14"></script>
+  <script src="pondgeo.tests.js?v=14"></script>
+  <script src="stairs.core.tests.js?v=14"></script>
+  <script src="sketch3d.tests.js?v=14"></script>
+  <script src="plan2d.tests.js?v=14"></script>
+  <script src="slope.tests.js?v=14"></script>
   <!-- A3 (v0.8.0): доступ і каталог з таблиці; адаптер Apps Script (gas.tests.js) — лише в Node -->
-  <script src="../core/auth.js?v=13"></script>
-  <script src="../core/catalog.js?v=13"></script>
-  <script src="sha256.js?v=13"></script>
-  <script src="fixtures/sheet.sample.js?v=13"></script>
-  <script src="auth.tests.js?v=13"></script>
-  <script src="catalog.tests.js?v=13"></script>
+  <script src="../core/auth.js?v=14"></script>
+  <script src="../core/catalog.js?v=14"></script>
+  <script src="sha256.js?v=14"></script>
+  <script src="fixtures/sheet.sample.js?v=14"></script>
+  <script src="auth.tests.js?v=14"></script>
+  <script src="catalog.tests.js?v=14"></script>
+  <script src="../core/estimate.js?v=14"></script>
+  <script src="estimate.tests.js?v=14"></script>
   <script>
     // Запускаємо тести і показуємо результат списком
     // Ядро розрахунку (з тестовим каталогом) + геометрія 3D-схеми
@@ -45,7 +47,8 @@
       .concat(StairsTests.run(Stairs, Calc)).concat(Sketch3DTests.run(PondGeo, Sketch3D))
       .concat(Plan2DTests.run(UI))
       .concat(SlopeTests.run(Slope, Calc, PondGeo, { film_margin_m: 0.5, shape_k_oval: 0.785, bio_depth_m: 0.3 }))
-      .concat(AuthTests.run(Auth, Sha256)).concat(CatalogTests.run(Catalog, Calc, SHEET_SAMPLE));
+      .concat(AuthTests.run(Auth, Sha256)).concat(CatalogTests.run(Catalog, Calc, SHEET_SAMPLE))
+      .concat(EstimateTests.run(Estimate, Calc, Format, SAMPLE_CATALOG));
     var list = document.getElementById('list');
     results.forEach(function (r) {
       var li = document.createElement('li');
