@@ -168,6 +168,14 @@ select.input {
 /* Біоплато «Разом» (D56): мілка зона спільного дзеркала — «пісок», як сходинки; шов зі ставком — пунктир */
 .sk-bio-zone { fill: var(--ground); fill-opacity: 0.34; }
 .sk-bio-seam { fill: none; stroke: var(--water); stroke-width: 1.2; stroke-dasharray: 3 3; }
+/* v0.7.0: низ укосу на плані, лінії розрізів (штрихпунктир, як на кресленні) і сам розріз */
+.sk-toe { fill: none; stroke: var(--water); stroke-width: 1; stroke-dasharray: 2 3; opacity: 0.75; }
+.sk-cut { fill: none; stroke: var(--hint); stroke-width: 1; stroke-dasharray: 10 3 2 3; }
+.sk-cut-label { fill: var(--text); font-size: calc(12px * var(--fs)); font-weight: 700; }
+.sec-water { fill: var(--water-fill); }
+.sec-surface { fill: none; stroke: var(--water); stroke-width: 1; stroke-dasharray: 5 3; }
+.sec-band { fill: var(--ground); fill-opacity: 0.28; }
+.sec-line { fill: none; stroke: var(--water); stroke-width: 2; stroke-linejoin: round; }
 .sk-label { fill: var(--hint); font-size: calc(12px * var(--fs)); font-variant-numeric: tabular-nums; }
 .sk-label--in { fill: var(--water); }
 .sk-hint { fill: var(--hint); font-size: calc(13px * var(--fs)); }
@@ -334,6 +342,12 @@ body.typing .totalbar { display: none; }
 .svc-row.counter, .svc-row.switch { min-height: 64px; }
 .svc-row .seg { margin: 10px 0 0; }
 .svc-row__label { display: block; }
+/* Укіс стінок: «1 : [m]  45°» в один рядок; кут — підказка, скільки це в градусах */
+.slope { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.slope__pre { font-size: calc(18px * var(--fs)); font-variant-numeric: tabular-nums; }
+.slope__input { width: 96px; text-align: center; font-size: calc(18px * var(--fs)); font-variant-numeric: tabular-nums; }
+.slope__deg { color: var(--hint); font-size: calc(16px * var(--fs)); font-variant-numeric: tabular-nums; }
+.slope__hint { margin: 8px 0 0; color: var(--hint); font-size: calc(13px * var(--fs)); line-height: 1.35; }
 .sheet__card .btn { margin-top: 18px; }
 
 @media (prefers-reduced-motion: reduce) {

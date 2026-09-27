@@ -91,6 +91,37 @@ var Calc = (function () {
     return stairsMemo.value;
   }
 
+  // ---------- Укіс стінок (v0.7.0): core/slope.js + контур ставка з core/pondgeo.js, теж необов'язково ----------
+  // Без них укіс не враховується (об'єм — як для вертикальних стінок). У Node.js — Calc.useSlope(Slope, PondGeo)
+  var slopeModule = null, geoModule = null;
+  function useSlope(sl, geo) { slopeModule = sl; geoModule = geo; }
+  function getSlope() { return slopeModule || (typeof Slope !== 'undefined' ? Slope : null); }
+  function getGeo() { return geoModule || (typeof PondGeo !== 'undefined' ? PondGeo : null); }
+
+  // Поле глибин з укосом: рахуємо, лише коли змінились форма, розміри, укіс або сходинки
+  var slopeMemo = { key: null, value: null };
+  function evaluateSlope(inp, L, W, D, m, steps) {
+    var Sl = getSlope(), G = getGeo(), St = getStairs();
+    if (!Sl || !G || !(m > 0)) return null;
+    var key = JSON.stringify([inp.shape, L, W, D, m, steps ? stairsMemo.key : null]);
+    if (slopeMemo.key === key) return slopeMemo.value;
+    // Сходинки в координатах плану — ті самі многокутники, що й у 3D (кільце — з діркою)
+    var levels = [];
+    if (steps && steps.available && St) {
+      steps.layers.forEach(function (l) {
+        if (!l.valid) return;
+        l.parts.forEach(function (part) {
+          var rings = part.rings.map(function (r) { return r.map(function (p) { return St.toPlan(p, l.pond); }); });
+          levels.push({ poly: rings[0], holes: rings.slice(1), depth: l.depth });
+        });
+      });
+    }
+    var f = Sl.field({ outline: G.outline(inp.shape, L, W), D: D, m: m, levels: levels });
+    var c = Sl.correction(f);
+    slopeMemo = { key: key, value: { field: f, C: c.C, area: c.area, maxDepth: c.maxDepth } };
+    return slopeMemo.value;
+  }
+
   // Мінімальна перевірка: без трьох розмірів рахувати нічого
   function isValidInputs(inp) {
     return num(inp.L) > 0 && num(inp.W) > 0 && num(inp.D) > 0;
@@ -115,7 +146,9 @@ var Calc = (function () {
       P = 2 * (L + W);
     }
 
-    // Об'єм: без сходинок — S·D·k (v4); зі сходинками — k·(S_глиб·D + Σ S_vis·h), stairs_math §10.1 (D35).
+    // Об'єм (v0.7.0, stairs_math §10.1): V₀ = S_глиб·D + Σ S_vis·h — як для вертикальних стінок (D35);
+    // укіс 1 : m (службова панель, D61) віднімає «зрізаний» похилими стінками об'єм C. Підйоми сходинок — вертикальні.
+    // depth_profile_k більше не використовується: нахил тепер задається явно (D63).
     // Шари з помилкою в об'єм не входять (помилка блокує збереження)
     var steps = evaluateSteps(inp, s, L, W, D);
     var Svis = 0, Vsteps = 0;
@@ -123,7 +156,10 @@ var Calc = (function () {
       steps.layers.forEach(function (l) { if (l.valid) { Svis += l.visible; Vsteps += l.visible * l.depth; } });
     }
     var Sdeep = Math.max(0, S - Svis);
-    var V = (Sdeep * D + Vsteps) * num(s.depth_profile_k, 1);
+    var slopeM = Math.max(0, num(inp.slope_m));
+    var sl = evaluateSlope(inp, L, W, D, slopeM, steps);
+    // C рахується на контурі схеми; S / area — перехід до площі з розрахунку (овал, нестандартна форма)
+    var V = Math.max(0, Sdeep * D + Vsteps - (sl && sl.area > 0 ? sl.C * S / sl.area : 0));
 
     // Біоплато рахуємо, лише якщо увімкнено і задано обидва розміри
     var bioD = num(s.bio_depth_m);
@@ -132,8 +168,10 @@ var Calc = (function () {
     var Vb = hasBio ? Lb * Wb * bioD : 0;
     var Vtotal = V + Vb;
 
-    // Плівку кроять прямокутником: розмір + 2 глибини + запас на край з кожного боку
-    var filmArea = (L + 2 * D + 2 * margin) * (W + 2 * D + 2 * margin);
+    // Плівку кроять прямокутником: розмір + 2 глибини + запас на край з кожного боку.
+    // З укосом замість D — розгортка стінки D·(√(1+m²) − m) (дно коротше, стінки довші); сходинки плівку не змінюють (D35)
+    var Sl = getSlope(), Df = Sl && sl ? Sl.filmDepth(D, slopeM) : D;
+    var filmArea = (L + 2 * Df + 2 * margin) * (W + 2 * Df + 2 * margin);
     var bioFilmArea = hasBio ? (Lb + 2 * bioD + 2 * margin) * (Wb + 2 * bioD + 2 * margin) : 0;
 
     // Потрібний потік: обертів об'єму за годину × об'єм, м³ → л
@@ -156,6 +194,8 @@ var Calc = (function () {
     return {
       L: L, W: W, D: D, S: S, P: P, V: V, Vb: Vb, Vtotal: Vtotal,
       steps: steps, Sdeep: Sdeep, Svis: Svis,
+      // Укіс: m, поле глибин (для розрізів і лінії низу укосу на схемі), найбільша глибина з укосом
+      slopeM: sl ? slopeM : 0, slope: sl, filmDepth: Df,
       hasBio: hasBio, Lb: Lb, Wb: Wb,
       filmArea: filmArea, bioFilmArea: bioFilmArea, filmAreaTotal: filmArea + bioFilmArea,
       excavation: Vtotal * num(s.excavation_k, 1),
@@ -244,6 +284,12 @@ var Calc = (function () {
         id: item.id, name: item.name + (suffix || ''), unit: item.unit,
         qty: q, price: price, sum: money(q * price), group: groupOf(item)
       });
+    }
+
+    // Укіс завеликий для розмірів: похилі стінки сходяться раніше, ніж котлован досягає глибини D
+    if (m.slope && m.slope.maxDepth < m.D - 0.01) {
+      warnings.push('Укіс 1 : ' + String(m.slopeM).replace('.', ',') + ' завеликий для цих розмірів: дно не досягає глибини ' +
+        String(m.D).replace('.', ',') + ' м (найглибше — ' + (Math.round(m.slope.maxDepth * 100) / 100).toString().replace('.', ',') + ' м)');
     }
 
     // Сходинки: помилки (E…) і попередження (W…) з номером сходинки
@@ -373,7 +419,7 @@ var Calc = (function () {
     isActive: isActive, findItem: findItem, activeItems: activeItems,
     isValidInputs: isValidInputs, computeMetrics: computeMetrics,
     pickByVolume: pickByVolume, pumpFlowAt: pumpFlowAt, recommendPump: recommendPump,
-    recommend: recommend, buildEstimate: buildEstimate, GROUPS: GROUPS, useStairs: useStairs
+    recommend: recommend, buildEstimate: buildEstimate, GROUPS: GROUPS, useStairs: useStairs, useSlope: useSlope
   };
 })();
 

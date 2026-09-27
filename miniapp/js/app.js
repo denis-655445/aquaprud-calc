@@ -16,7 +16,9 @@
   // scene — вид схеми: '2d' / '3d' і номер ракурсу 0–3 (теж не скидається)
   // pro — Про-режим зі сходинками (D46): вмикається в службовій панелі й не скидається «Новим кошторисом»
   // bioJoin — біоплато на схемі «Разом» (впритул, одне дзеркало, D56): лише вигляд, теж не скидається
-  var service = { labor_pct: null, markup_pct: null, hidePrices: false, fontScale: 1, scene: { mode: '2d', view: 0 }, pro: false, bioJoin: false };
+  // slope_m — укіс стінок 1 : m (D61): задається в службовій панелі один раз і діє в усіх кошторисах (не скидається);
+  // scene.plan — вид 2D: 0 — план, 1 — розріз А–А, 2 — розріз Б–Б (v0.7.0)
+  var service = { labor_pct: null, markup_pct: null, hidePrices: false, fontScale: 1, scene: { mode: '2d', view: 0, plan: 0 }, pro: false, bioJoin: false, slope_m: 0 };
   var FONT_SCALES = [1, 1.15, 1.3];
   var lastEst = null;
   var lastMetrics = null;  // метрики останнього розрахунку — для перемальовування схеми під час повороту
@@ -120,7 +122,9 @@
     if (state.client.phoneCountry !== 'PL') state.client.phoneCountry = 'UA';
     if (FONT_SCALES.indexOf(Number(service.fontScale)) === -1) service.fontScale = 1;
     var sc = service.scene || {};
-    service.scene = { mode: sc.mode === '3d' ? '3d' : '2d', view: [0, 1, 2, 3].indexOf(sc.view) === -1 ? 0 : sc.view };
+    service.scene = { mode: sc.mode === '3d' ? '3d' : '2d', view: [0, 1, 2, 3].indexOf(sc.view) === -1 ? 0 : sc.view,
+                      plan: [0, 1, 2].indexOf(sc.plan) === -1 ? 0 : sc.plan };
+    service.slope_m = slopeValue(service.slope_m);
     function exists(id) { return !!Calc.findItem(catalog, id); }
     var films = Calc.activeItems(catalog, 'film');
     if (!exists(state.inputs.filmId)) state.inputs.filmId = films.length ? films[0].id : '';
@@ -228,9 +232,13 @@
   }
 
   // Параметри для ядра: сходинки враховуємо лише в Про-режимі (вимкнений режим не видаляє введене)
+  // Укіс: число від 0 до 10 (порожньо / помилка → 0)
+  function slopeValue(v) { var m = Calc.num(v, 0); return m > 0 ? Math.min(10, m) : 0; }
+
   function calcInputs() {
     var inp = Object.assign({}, state.inputs);
     inp.steps = service.pro ? state.inputs.steps : [];
+    inp.slope_m = service.slope_m;                     // укіс — зі службової панелі, спільний для всіх кошторисів
     return inp;
   }
 
@@ -527,6 +535,7 @@
   // Редагування сходинки: схема перемикається на 2D, бо точки натискають саме там
   function toSketch2d() {
     if (service.scene.mode === '3d') { service.scene.mode = '2d'; sceneAz = null; }
+    service.scene.plan = 0;                            // точки — лише на плані, не на розрізі
   }
 
   function bindSteps() {
@@ -585,7 +594,7 @@
     });
     // Натискання на точку 2D-схеми (кружечки створюються під час малювання — ловимо на самому SVG)
     $('sketch').addEventListener('click', function (e) {
-      if (!service.pro || service.scene.mode !== '2d') return;
+      if (!service.pro || service.scene.mode !== '2d' || service.scene.plan) return;
       var g = e.target.closest && e.target.closest('[data-point]');
       if (g) togglePoint(Number(g.getAttribute('data-point')));
     });
@@ -615,6 +624,50 @@
     return out;
   }
 
+  /*
+   * Розрізи й укіс на плані (v0.7.0): поле глибин (core/slope.js) з тими самими сходинками, що й у розрахунку;
+   * лінії А–А (y = W/2) і Б–Б (x = L/2) — через ставок і біоплато, якщо воно на лінії.
+   * Біоплато в розрізі — котлован з вертикальними стінками на bio_depth_m; «Разом» — укіс ставка починається
+   * від глибини біоплато (лише вигляд, D56). Результат запам'ятовуємо, поки не змінились вхідні дані.
+   */
+  var PLAN_NAMES = ['План', 'Розріз А–А (по довжині)', 'Розріз Б–Б (по ширині)'];
+  var secK = [1, null, null];                          // вертикальне перебільшення розрізів (для підпису)
+  var secRetry = false;                                // підпис змінився — перемальовуємо лише один раз
+  var cutMemo = { key: null, value: null };
+  function cutGeometry(m) {
+    var shape = state.inputs.shape, L = m.L, W = m.W, D = m.D, side = state.inputs.bioSide;
+    var bioD = Calc.num(catalog.settings.bio_depth_m), levels = sceneLevels(m);
+    var key = JSON.stringify([shape, L, W, D, m.slopeM, m.hasBio, m.Lb, m.Wb, side, service.bioJoin, bioD, service.pro, levelsMemo.steps && levelsMemo.steps.layers.length]);
+    if (cutMemo.key === key && cutMemo.levels === levels) return cutMemo.value;
+    var jn = m.hasBio && service.bioJoin ? PondGeo.bioJoin(shape, L, W, { L: m.Lb, W: m.Wb }, side) : null;
+    var bioPoly = jn ? jn.zone : m.hasBio ? PondGeo.rect.apply(null, PondGeo.bioRect(L, W, { L: m.Lb, W: m.Wb }, side)) : null;
+    var f = Slope.field({ outline: PondGeo.outline(shape, L, W), D: D, m: m.slopeM, levels: levels,
+                          seam: jn && bioD > 0 ? { pts: jn.seam, depth: bioD } : null });
+    // Де лінія (x або y = c) перетинає многокутник: координати перетинів уздовж лінії
+    function cross(poly, axis, c) {
+      var out = [];
+      poly.forEach(function (a, i) {
+        var b = poly[(i + 1) % poly.length], u = axis ? 0 : 1, v = axis ? 1 : 0;   // u — поперек лінії, v — уздовж
+        if ((a[u] - c) * (b[u] - c) <= 0 && a[u] !== b[u]) out.push(a[v] + (b[v] - a[v]) * (c - a[u]) / (b[u] - a[u]));
+      });
+      return out;
+    }
+    function line(axis) {                               // axis 0 — А–А (уздовж x), 1 — Б–Б (уздовж y)
+      var c = axis ? L / 2 : W / 2, lo = 0, hi = axis ? W : L, bx = bioPoly ? cross(bioPoly, axis, c) : [];
+      var blo = bx.length ? Math.min.apply(null, bx) : null, bhi = bx.length ? Math.max.apply(null, bx) : null;
+      if (bx.length) { lo = Math.min(lo, blo); hi = Math.max(hi, bhi); }
+      var mg = Math.max(0.3, 0.06 * (hi - lo));         // земля з обох боків
+      var p = function (v) { return axis ? [c, v] : [v, c]; };
+      var samples = Slope.profile(f, p(lo - mg), p(hi + mg), bioPoly ? [{ poly: bioPoly, depth: bioD }] : []);
+      var dims = [{ t0: mg - lo, t1: mg - lo + (axis ? W : L), text: Format.qty(axis ? W : L) + ' м' }];
+      if (bx.length && bioD > 0) dims.push({ t0: blo - lo + mg, t1: bhi - lo + mg, text: 'біоплато' });
+      return { ends: [p(lo), p(hi)], section: { samples: samples, dims: dims } };
+    }
+    var a = line(0), b = line(1);
+    cutMemo = { key: key, levels: levels, value: { aa: a.ends, bb: b.ends, sections: [a.section, b.section], toe: Slope.toeLines(f) } };
+    return cutMemo.value;
+  }
+
   // fromAnim = true — кадр анімації повороту: розміри блока й кнопок не змінились, не перемірюємо
   var sceneBox = null;
   function drawScene(fromAnim) {
@@ -624,34 +677,51 @@
     document.querySelectorAll('[data-scene]').forEach(function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.scene === service.scene.mode));
     });
-    $('sceneNav').hidden = !is3d;
-    $('sceneDots').hidden = !is3d;
-    $('sketch').classList.toggle('is-3d', is3d);
-    $('sketch').setAttribute('aria-label', is3d ? 'Схема ставка в 3D, ракурс ' + (service.scene.view + 1) + ' з 4' : 'Схема ставка, вид зверху');
     var dims = m.L > 0 && m.W > 0 && m.D > 0;
-    $('sceneCaption').hidden = !(is3d && dims);
-    // Підпис розмірів — до вимірювання кнопок: порожній підпис має нульовий розмір і креслення налізло б на нього
+    var planView = is3d ? 0 : service.scene.plan;       // 2D: 0 — план, 1 — А–А, 2 — Б–Б
+    // ‹ › і крапки: 3D — 4 ракурси, 2D — план і два розрізи (v0.7.0); без розмірів гортати нічого
+    $('sceneNav').hidden = !dims;
+    $('sceneDots').hidden = !dims;
+    $('sceneDots').querySelectorAll('i').forEach(function (d, i) {
+      d.hidden = !is3d && i > 2;
+      d.classList.toggle('is-on', i === (is3d ? service.scene.view : planView));
+    });
+    $('sketch').classList.toggle('is-3d', is3d);
+    $('sketch').setAttribute('aria-label', is3d ? 'Схема ставка в 3D, ракурс ' + (service.scene.view + 1) + ' з 4' : 'Схема ставка: ' + PLAN_NAMES[planView].toLowerCase());
+    var slopeTxt = m.slopeM > 0 ? 'укіс 1 : ' + Format.qty(m.slopeM) + ' (' + Math.round(Slope.angleDeg(m.slopeM)) + '°)' : '';
+    $('sceneCaption').hidden = !dims || (!is3d && !planView);
+    // Підпис — до вимірювання кнопок: порожній підпис має нульовий розмір і креслення налізло б на нього
     if (is3d && dims) {
       $('sceneCaption').textContent = Format.qty(m.L) + ' × ' + Format.qty(m.W) + ' м, глибина ' + Format.qty(m.D) + ' м' +
-        (state.inputs.shape === 'custom' ? ' (форма умовна)' : '');
+        (state.inputs.shape === 'custom' ? ' (форма умовна)' : '');   // укіс у 3D — з v0.7.1 (похилі стінки)
+    } else if (dims && planView) {
+      var kx = secK[planView] > 1 ? ' · вертикаль ×' + Format.qty(secK[planView]) : '';
+      $('sceneCaption').textContent = PLAN_NAMES[planView] + (slopeTxt ? ' · ' + slopeTxt : '') + kx;
     }
     if (!fromAnim || !sceneBox) {
       // 1. Розмір блока схеми (D57): на всю ширину; висота — до висоти екрана (альбом), а в портреті:
       //    3D — до ширини блока, 2D — до PLAN_H_K ширини (v0.6.3, D60: план 2D на всю висоту був завеликим)
       var bw = $('scene').clientWidth, vh = viewportHeight();
       var landscape = window.matchMedia('(orientation: landscape) and (max-height: 500px)').matches;
-      var hPortrait = Math.min((is3d ? 1 : PLAN_H_K) * bw, 0.62 * vh);
+      var hPortrait = Math.min((is3d ? 1 : PLAN_H_K) * bw, 0.62 * vh);                  // розрізи — як план
       sceneBox = { box: { w: bw, hMax: Math.max(160, landscape ? vh - 24 : hPortrait) }, avoid: sceneAvoid() };
     }
     if (!is3d) {
       tweenScene = false; shownFit = null; fitTween = null;   // перехід масштабу — лише для 3D
+      var fs = Number(service.fontScale) || 1, cut = dims ? cutGeometry(m) : null;
+      if (planView && cut) {
+        // Розріз: профіль уздовж лінії; множник вертикалі — у підписі (якщо змінився — перемальовуємо підпис і схему)
+        var r = UI.drawSection($('sketch'), cut.sections[planView - 1], { box: sceneBox.box, avoid: sceneBox.avoid, fs: fs });
+        if (r.k !== secK[planView] && !secRetry) { secK[planView] = r.k; secRetry = true; drawScene(); secRetry = false; }
+        return;
+      }
       UI.drawSketch($('sketch'), state.inputs.shape, m, sketchOverlay(m), { side: state.inputs.bioSide, joined: service.bioJoin },
-        { box: sceneBox.box, avoid: sceneBox.avoid, fs: Number(service.fontScale) || 1 });
+        { box: sceneBox.box, avoid: sceneBox.avoid, fs: fs,
+          sections: cut ? { aa: cut.aa, bb: cut.bb } : null, toe: cut ? cut.toe : [] });
       return;
     }
 
     if (sceneAz === null) sceneAz = VIEW_AZ[service.scene.view];
-    $('sceneDots').querySelectorAll('i').forEach(function (d, i) { d.classList.toggle('is-on', i === service.scene.view); });
     var bioDepth = Calc.num(catalog.settings.bio_depth_m);
     var o = {
       shape: state.inputs.shape, L: m.L, W: m.W, D: m.D,
@@ -697,7 +767,14 @@
 
   // Поворот на сусідній ракурс: dir = +1 (›) або −1 (‹); плавно, якщо користувач не вимкнув анімації
   function rotateView(dir) {
-    if (service.scene.mode !== '3d') return;
+    if (service.scene.mode !== '3d') {
+      // 2D: план → розріз А–А → розріз Б–Б → план
+      service.scene.plan = (service.scene.plan + dir + 3) % 3;
+      saveDraft();
+      haptic('select');
+      drawScene();
+      return;
+    }
     service.scene.view = (service.scene.view + dir + 4) % 4;
     saveDraft();
     haptic('select');
@@ -775,6 +852,13 @@
     $('markupPct').textContent = eff.markup_pct;
     var withEq = catalog.settings.labor_base === 'materials+equipment';
     $('laborLabel').textContent = 'Роботи, % від ' + (withEq ? 'матеріалів і обладнання' : 'матеріалів');
+    setVal('slopeM', service.slope_m ? Format.qty(service.slope_m) : '0');
+    syncSlopeDeg();
+  }
+  // Кут до горизонту поруч із полем: 1 : m → atan(1/m)
+  function syncSlopeDeg() {
+    var a = Slope.angleDeg(service.slope_m);
+    $('slopeDeg').textContent = (Math.round(a * 10) / 10).toString().replace('.', ',') + '°';
   }
 
   // Довге натискання на заголовок — запасний спосіб відкрити панель (поза Telegram або старі версії)
@@ -990,6 +1074,12 @@
       });
     });
     $('hidePrices').addEventListener('change', function (e) { service.hidePrices = e.target.checked; changed(); });
+    // Укіс (D61): зберігається в службових налаштуваннях і діє на всі кошториси, доки його не змінять тут
+    $('slopeM').addEventListener('input', function (e) {
+      service.slope_m = slopeValue(e.target.value);
+      syncSlopeDeg();
+      changed();
+    });
     // Біоплато на схемі «Разом / Окремо» (D56): лише вигляд 2D / 3D — перераховувати кошторис не треба
     document.querySelectorAll('[data-biojoin]').forEach(function (b) {
       b.addEventListener('click', function () {

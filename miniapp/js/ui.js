@@ -64,7 +64,8 @@ var UI = (function () {
   /*
    * Розкладка 2D-схеми (v0.6.3, D60) — чиста функція без DOM.
    * pts — що має вміститися: { mx, my } — точка плану, м; dx, dy — зсув від неї, px (підписи, кружечки точок).
-   * box = { w, hMax } — ширина блока і найбільша висота, px; tops = [{ x0, x1, y1 }] — кнопки біля верхнього краю.
+   * box = { w, hMax } — ширина блока і найбільша висота, px; tops = [{ x0, x1, y1 }] — кнопки біля верхнього краю;
+   * bottoms = [{ x0, x1, h }] — біля нижнього (v0.7.0: стрілки ‹ › і крапки видів є і в 2D).
    * Правила:
    *   1. Масштаб s — найбільший, за якого креслення вміщається в ширину блока і в hMax.
    *   2. Креслення починається згори (без порожнечі над ним); поруч із кнопкою воно зсувається вбік від неї,
@@ -73,10 +74,12 @@ var UI = (function () {
    * Повертає { s, offX, t, h }: X = offX + s·mx + dx, Y = t + s·my + dy; h — висота блока.
    */
   var PLAN_PAD = 6, PLAN_GAP = 6;
-  function fitPlan(pts, box, tops) {
-    tops = tops || [];
+  function fitPlan(pts, box, tops, bottoms) {
+    tops = tops || []; bottoms = bottoms || [];
     var hMin = PLAN_PAD * 2;
     tops.forEach(function (r) { hMin = Math.max(hMin, r.y1 + PLAN_PAD); });   // блок не нижчий за перемикач
+    // Кнопки згори й знизу з одного боку не налазять одна на одну (перемикач над стрілками)
+    tops.forEach(function (r) { bottoms.forEach(function (q) { if (r.x1 > q.x0 && q.x1 > r.x0) hMin = Math.max(hMin, r.y1 + q.h + PLAN_GAP); }); });
     function place(sc) {
       var xl = Infinity, xr = -Infinity, yt = Infinity, yb = -Infinity;
       pts.forEach(function (p) {
@@ -92,6 +95,14 @@ var UI = (function () {
         var onRight = (r.x0 + r.x1) / 2 > box.w / 2;
         pts.forEach(function (p) {
           if (t + sc * p.my + p.dy >= r.y1 + PLAN_GAP) return;                   // нижче кнопки — можна на всю ширину
+          var X = sc * p.mx + p.dx;
+          if (onRight) hi = Math.min(hi, r.x0 - PLAN_GAP - X); else lo = Math.max(lo, r.x1 + PLAN_GAP - X);
+        });
+      });
+      bottoms.forEach(function (r) {
+        var onRight = (r.x0 + r.x1) / 2 > box.w / 2;
+        pts.forEach(function (p) {
+          if (t + sc * p.my + p.dy <= h - r.h - PLAN_GAP) return;                // вище кнопки — можна на всю ширину
           var X = sc * p.mx + p.dx;
           if (onRight) hi = Math.min(hi, r.x0 - PLAN_GAP - X); else lo = Math.max(lo, r.x1 + PLAN_GAP - X);
         });
@@ -125,6 +136,7 @@ var UI = (function () {
     // hMax 2D менший, ніж у 3D (app.js), а поруч із перемикачем 2D / 3D креслення зсувається ліворуч
     fitOpt = fitOpt || {};
     var box = fitOpt.box || { w: 320, hMax: 190 }, tops = (fitOpt.avoid && fitOpt.avoid.top) || [];
+    var bottoms = (fitOpt.avoid && fitOpt.avoid.bottom) || [];
     var fontPx = 12 * (fitOpt.fs || 1);                  // як .sk-label: 12px × --fs
     var PAD = PLAN_PAD;
 
@@ -186,7 +198,16 @@ var UI = (function () {
     }
 
     // 2. Масштаб і місце креслення (fitPlan): X = offX + s·mx + dx, Y = t + s·my + dy
-    var fit = fitPlan(pts, box, tops);
+    // Лінії розрізів А–А (по довжині) і Б–Б (по ширині), v0.7.0: літера — з боку, протилежного підпису розміру
+    var sec = fitOpt.sections || null, LET = 12;                    // LET — відступ літери від кінця лінії, px
+    if (sec) {
+      add(sec.aa[0][0], sec.aa[0][1]); add(sec.aa[1][0], sec.aa[1][1]); add(sec.bb[0][0], sec.bb[0][1]); add(sec.bb[1][0], sec.bb[1][1]);
+      var aEnd = labelRight ? sec.aa[0] : sec.aa[1], bEnd = labelTop ? sec.bb[1] : sec.bb[0];
+      addBox(aEnd[0], aEnd[1], labelRight ? -LET - 8 : LET - 4, -asc / 2 - 1, labelRight ? -LET + 4 : LET + 8, asc / 2 + 1);
+      addBox(bEnd[0], bEnd[1], -6, (labelTop ? LET + 4 : -LET + 4) - asc, 6, (labelTop ? LET + 4 : -LET + 4) + desc);
+    }
+
+    var fit = fitPlan(pts, box, tops, bottoms);
     svg.setAttribute('viewBox', '0 0 ' + Math.round(box.w) + ' ' + Math.round(fit.h));
     var scale = fit.s, w = m.L * scale, h = m.W * scale, x0 = fit.offX, y0 = fit.t;
     function X(p) { return (x0 + p[0] * scale).toFixed(1) + ' ' + (y0 + p[1] * scale).toFixed(1); }
@@ -213,6 +234,22 @@ var UI = (function () {
       node('path', { d: d, 'fill-rule': 'evenodd', 'fill-opacity': [0.5, 0.34, 0.22][Math.min(2, l.rank)],
         'class': 'sk-step' + (l.active ? ' is-active' : '') + (l.error ? ' is-error' : '') });
     });
+
+    // Укіс (v0.7.0): низ похилої стінки — тонкий пунктир (Slope.toeLines)
+    (fitOpt.toe || []).forEach(function (l) { node('path', { d: 'M' + l.map(X).join('L'), 'class': 'sk-toe' }); });
+
+    // Лінії розрізів: штрихпунктир через ставок і біоплато, літера на кінці
+    if (sec) {
+      [['aa', 'А', labelRight ? 0 : 1, 'h'], ['bb', 'Б', labelTop ? 1 : 0, 'v']].forEach(function (c) {
+        var ln = sec[c[0]], e = ln[c[2]];
+        var ex = x0 + e[0] * scale, ey = y0 + e[1] * scale, sx = x0 + ln[1 - c[2]][0] * scale, sy = y0 + ln[1 - c[2]][1] * scale;
+        // З боку літери лінія виходить за край на 6 px, з іншого — закінчується на краю (там підпис розміру)
+        var ux = Math.sign(ex - sx), uy = Math.sign(ey - sy);
+        node('path', { d: 'M' + sx.toFixed(1) + ' ' + sy.toFixed(1) + 'L' + (ex + ux * 6).toFixed(1) + ' ' + (ey + uy * 6).toFixed(1), 'class': 'sk-cut' });
+        if (c[3] === 'h') node('text', { x: ex + (c[2] ? LET + 2 : -LET - 2), y: ey + 4, 'text-anchor': 'middle', 'class': 'sk-cut-label' }, c[1]);
+        else node('text', { x: ex, y: ey + (c[2] ? LET + 4 : -LET + 4), 'text-anchor': 'middle', 'class': 'sk-cut-label' }, c[1]);
+      });
+    }
 
     // Підписи розмірів: довжина — під ставком (над ним, коли біоплато знизу), ширина — ліворуч (праворуч, коли біоплато ліворуч)
     var off = withPts ? 14 : 6;
@@ -244,6 +281,128 @@ var UI = (function () {
       node('circle', { cx: cx, cy: cy, r: 8.5, 'class': 'sk-pt__dot' }, null, g);
       node('text', { x: cx, y: cy + 3.5, 'text-anchor': 'middle', 'class': 'sk-pt__num' }, String(pt.id), g);
     });
+  }
+
+  /*
+   * Розріз А–А / Б–Б (v0.7.0). sec = {
+   *   samples: [{ t, z }] — профіль уздовж лінії (Slope.profile): t — м від початку, z — глибина, м;
+   *   dims: [{ t0, t1, text }] — розмір над землею (ставок, біоплато);
+   *   k — підказка: вертикальне перебільшення (null — підібрати) }
+   * Масштаб — найбільший, за якого розріз вміщається в ширину і hMax; мілкий розріз (глибина < 48 px)
+   * перебільшуємо по вертикалі (×1,5 / 2 / 3 / 4 / 5 / 10) — множник пишемо в підписі (app.js).
+   * Розкладка — як у 3D: креслення опускається під підпис і перемикач, а над стрілками піднімає висоту блока.
+   */
+  var SEC_KS = [1, 1.5, 2, 3, 4, 5, 10];
+  function fitSection(pts, box, avoid) {
+    var tops = (avoid && avoid.top) || [], bottoms = (avoid && avoid.bottom) || [], PAD = PLAN_PAD, GAP = PLAN_GAP;
+    var hMin = PAD * 2;
+    tops.forEach(function (r) { bottoms.forEach(function (q) { if (r.x1 > q.x0 && q.x1 > r.x0) hMin = Math.max(hMin, r.y1 + q.h + GAP); }); });
+    var inX = function (X, r) { return X >= r.x0 - GAP && X <= r.x1 + GAP; };
+    function place(sc) {
+      var xl = Infinity, xr = -Infinity, y0 = Infinity;
+      pts.forEach(function (p) { var X = sc * p.mx + p.dx; xl = Math.min(xl, X); xr = Math.max(xr, X); y0 = Math.min(y0, sc * p.my + p.dy); });
+      if (xr - xl > box.w - 2 * PAD) return null;
+      var offX = (box.w - xl - xr) / 2, t = PAD - y0, h = hMin;
+      pts.forEach(function (p) {
+        var X = offX + sc * p.mx + p.dx, Y = sc * p.my + p.dy;
+        tops.forEach(function (r) { if (inX(X, r)) t = Math.max(t, r.y1 + GAP - Y); });
+      });
+      pts.forEach(function (p) {
+        var X = offX + sc * p.mx + p.dx, Y = t + sc * p.my + p.dy;
+        h = Math.max(h, Y + PAD);
+        bottoms.forEach(function (r) { if (inX(X, r)) h = Math.max(h, Y + GAP + r.h); });
+      });
+      return { s: sc, offX: offX, t: t, h: h };
+    }
+    var mx0 = Infinity, mx1 = -Infinity;
+    pts.forEach(function (p) { mx0 = Math.min(mx0, p.mx); mx1 = Math.max(mx1, p.mx); });
+    var lo = 0, hi = (box.w - 2 * PAD) / Math.max(1e-9, mx1 - mx0);
+    for (var it = 0; it < 30; it++) {
+      var mid = (lo + hi) / 2, r0 = place(mid);
+      if (r0 && r0.h <= box.hMax) lo = mid; else hi = mid;
+    }
+    return place(lo) || { s: lo, offX: PAD, t: PAD, h: Math.max(hMin, 60) };
+  }
+
+  function drawSection(svg, sec, fitOpt) {
+    var NS = 'http://www.w3.org/2000/svg';
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    fitOpt = fitOpt || {};
+    var box = fitOpt.box || { w: 320, hMax: 190 }, fontPx = 12 * (fitOpt.fs || 1);
+    var asc = 0.75 * fontPx, desc = 0.25 * fontPx, BAND = 7;          // BAND — смуга ґрунту під лінією землі, px
+    function node(tag, attrs, text) {
+      var n = document.createElementNS(NS, tag);
+      Object.keys(attrs).forEach(function (k) { n.setAttribute(k, attrs[k]); });
+      if (text) n.textContent = text;
+      svg.appendChild(n);
+      return n;
+    }
+    var smp = sec.samples, D = 0;
+    smp.forEach(function (q) { D = Math.max(D, q.z); });
+    var tw = function (t) { return 0.6 * fontPx * t.length + 4; };
+
+    // Горизонтальні ділянки дна (для підписів глибин): підряд однакова глибина
+    var runs = [];
+    smp.forEach(function (q, i) {
+      var last = runs[runs.length - 1];
+      if (q.z > 1e-6 && last && Math.abs(last.z - q.z) < 1e-4 && last.i1 === i - 1) { last.t1 = q.t; last.i1 = i; }
+      else if (q.z > 1e-6) runs.push({ z: q.z, t0: q.t, t1: q.t, i0: i, i1: i });
+    });
+
+    function ptsFor(k) {
+      var pts = [];
+      smp.forEach(function (q) { pts.push({ mx: q.t, my: q.z * k, dx: 0, dy: 0 }); pts.push({ mx: q.t, my: q.z * k, dx: 0, dy: BAND }); });
+      (sec.dims || []).forEach(function (d) {
+        var c = (d.t0 + d.t1) / 2, w = tw(d.text);
+        pts.push({ mx: c, my: 0, dx: -w / 2, dy: -6 - asc }, { mx: c, my: 0, dx: w / 2, dy: -6 - asc });
+      });
+      runs.forEach(function (r) {                                   // підпис глибини під ділянкою
+        var c = (r.t0 + r.t1) / 2;
+        pts.push({ mx: c, my: r.z * k, dx: 0, dy: BAND + 4 + asc + desc });
+      });
+      return pts;
+    }
+    // 1. Масштаб без перебільшення; мілкий розріз — перебільшуємо по вертикалі й перераховуємо
+    var k = 1, fit = fitSection(ptsFor(1), box, fitOpt.avoid);
+    if (D > 0 && D * fit.s < 48) {
+      var need = 48 / (D * fit.s);
+      k = SEC_KS.filter(function (x) { return x >= need; })[0] || SEC_KS[SEC_KS.length - 1];
+      fit = fitSection(ptsFor(k), box, fitOpt.avoid);
+    }
+    svg.setAttribute('viewBox', '0 0 ' + Math.round(box.w) + ' ' + Math.round(fit.h));
+    var s = fit.s;
+    function P(t, z, dy) { return [fit.offX + t * s, fit.t + z * k * s + (dy || 0)]; }
+    function d(list) { return 'M' + list.map(function (p) { return p[0].toFixed(1) + ' ' + p[1].toFixed(1); }).join('L'); }
+
+    // 2. Вода в котлованах (від дна до поверхні), смуга ґрунту під лінією землі, сама лінія землі
+    var pit = null;
+    smp.forEach(function (q, i) {
+      if (q.z > 1e-6) { if (!pit) pit = [P(smp[Math.max(0, i - 1)].t, 0)]; pit.push(P(q.t, q.z)); }
+      if ((q.z <= 1e-6 || i === smp.length - 1) && pit) {
+        pit.push(P(q.t, 0));
+        node('path', { d: d(pit) + 'Z', 'class': 'sec-water' });
+        node('path', { d: 'M' + pit[0][0].toFixed(1) + ' ' + pit[0][1].toFixed(1) + 'L' + pit[pit.length - 1][0].toFixed(1) + ' ' + pit[pit.length - 1][1].toFixed(1), 'class': 'sec-surface' });
+        pit = null;
+      }
+    });
+    var top = smp.map(function (q) { return P(q.t, q.z); }), bottom = smp.map(function (q) { return P(q.t, q.z, BAND); }).reverse();
+    node('path', { d: d(top.concat(bottom)) + 'Z', 'class': 'sec-band' });
+    node('path', { d: d(top), 'class': 'sec-line' });
+
+    // 3. Розміри над землею й глибини під ділянками дна (підпис, що налазить на попередній, пропускаємо)
+    (sec.dims || []).forEach(function (dm) {
+      var a = P(dm.t0, 0), b = P(dm.t1, 0), y = a[1] - 6;
+      node('text', { x: ((a[0] + b[0]) / 2).toFixed(1), y: y.toFixed(1), 'text-anchor': 'middle', 'class': 'sk-label' }, dm.text);
+    });
+    var lastX = -Infinity;
+    runs.forEach(function (r) {
+      var txt = Format.qty(Math.round(r.z * 100) / 100) + ' м', w = tw(txt);
+      var a = P(r.t0, r.z), b = P(r.t1, r.z), cx = (a[0] + b[0]) / 2;
+      if (b[0] - a[0] < 18 || cx - w / 2 < lastX + 4) return;
+      lastX = cx + w / 2;
+      node('text', { x: cx.toFixed(1), y: (a[1] + BAND + 4 + asc).toFixed(1), 'text-anchor': 'middle', 'class': 'sk-label' }, txt);
+    });
+    return { k: k, s: s };
   }
 
   // Три показники під полями: площа, об'єм, плівка
@@ -351,7 +510,7 @@ var UI = (function () {
 
   return {
     $: $, el: el, fillSelect: fillSelect, markSelect: markSelect, setNote: setNote,
-    drawSketch: drawSketch, fitPlan: fitPlan, renderStats: renderStats, renderWarnings: renderWarnings,
+    drawSketch: drawSketch, drawSection: drawSection, fitPlan: fitPlan, fitSection: fitSection, renderStats: renderStats, renderWarnings: renderWarnings,
     renderLines: renderLines, renderTotals: renderTotals, renderExtras: renderExtras, setCollapse: setCollapse
   };
 })();

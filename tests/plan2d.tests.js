@@ -33,6 +33,13 @@ var Plan2DTests = (function () {
         var pts = pondPts(20, 3), f = UI.fitPlan(pts, { w: 362, hMax: 217 }, toggle), q = where(pts, f);
         return Math.round(f.h) === 84 && !q.some(function (p) { return under(p, toggle[0]); });
       }],
+      ['2D з кнопками знизу (‹ › і крапки, v0.7.0): креслення не заходить ні під перемикач, ні під стрілки', function () {
+        var bottoms = [{ x0: 0, x1: 40, h: 25 }, { x0: 266, x1: 362, h: 44 }];
+        var pts = pondPts(6, 4, [{ mx: 3, my: 4, dx: 0, dy: 24 }]), f = UI.fitPlan(pts, { w: 362, hMax: 217 }, toggle, bottoms);
+        var q = where(pts, f);
+        var underB = function (p) { return bottoms.some(function (r) { return p.X > r.x0 && p.X < r.x1 && p.Y > f.h - r.h; }); };
+        return f.h <= 217 && !q.some(function (p) { return under(p, toggle[0]) || underB(p); });
+      }],
       ['2D: вузький 3 × 8 — упирається в hMax і стоїть по центру блока', function () {
         var pts = pondPts(3, 8), f = UI.fitPlan(pts, { w: 362, hMax: 217 }, toggle), q = where(pts, f);
         var xs = q.map(function (p) { return p.X; });
