@@ -66,17 +66,78 @@ var PondGeoTests = (function () {
         var sc = G.buildScene({ shape: 'oval', L: 6, W: 4, D: 1.5 });
         return G.sceneLines(sc, cam).filter(function (l) { return l.kind === 'edge'; }).length === 2;
       }],
-      ['Біоплато: окремий котлован праворуч, глибина з налаштувань', function () {
-        var sc = G.buildScene({ shape: 'rect', L: 6, W: 4, D: 1.5, bio: { L: 2, W: 2, depth: 0.3 } });
-        var bio = sc.pits[1];
-        return sc.pits.length === 2 && bio.outline[0][0] > 6 && G.groundAt(sc, [bio.outline[0][0] + 1, 2]) === -0.3;
+      // ---------- Біоплато v0.7.1: Bio-1…Bio-4 на всю сторону, змінна лише ширина ----------
+      ['«Окремо», 1 Bio праворуч: котлован з проміжком, довжина = W, ширина = w, глибина з налаштувань', function () {
+        var sc = G.buildScene({ shape: 'rect', L: 6, W: 4, D: 1.5, bio: { plates: [{ n: 1, side: 'right', w: 2 }], depth: 0.3 } });
+        var g = G.bioGap(6), bb = sc.pits[1].outline, xs = bb.map(function (q) { return q[0]; }), ys = bb.map(function (q) { return q[1]; });
+        return sc.pits.length === 2 && near(Math.min.apply(null, xs), 6 + g) && near(Math.max.apply(null, xs), 8 + g) &&
+          near(Math.min.apply(null, ys), 0) && near(Math.max.apply(null, ys), 4) && G.groundAt(sc, [7 + g, 2]) === -0.3 &&
+          sc.bios.length === 1 && sc.bios[0].n === 1;
       }],
-      ['Біоплато з 4 боків: Lб завжди від ставка, Wб уздовж сторони, по центру сторони', function () {
-        var bio = { L: 3, W: 1 }, L = 6, W = 4;
-        var r = G.bioRect(L, W, bio, 'right'), b = G.bioRect(L, W, bio, 'bottom'), l = G.bioRect(L, W, bio, 'left'), t = G.bioRect(L, W, bio, 'top');
-        return r[0] > L && r[2] === 3 && r[3] === 1 && near(r[1] + r[3] / 2, W / 2) &&
-          b[1] > W && b[2] === 1 && b[3] === 3 && near(b[0] + b[2] / 2, L / 2) &&
-          l[0] + l[2] < 0 && t[1] + t[3] < 0 && G.BIO_SIDES.join() === 'right,bottom,left,top';
+      ['Bio з 4 боків: довжина — сторона ставка (L або W), зовнішня сторона на відстані w від ставка', function () {
+        var L = 6, W = 4, ok = true;
+        G.BIO_SIDES.forEach(function (side) {
+          var r = G.bioGeometry('rect', L, W, [{ n: 1, side: side, w: 1.5 }], true).rects[0].r;
+          var len = side === 'right' || side === 'left' ? W : L, horiz = side === 'top' || side === 'bottom';
+          ok = ok && near(horiz ? r[2] : r[3], len) && near(horiz ? r[3] : r[2], 1.5) &&
+            (side === 'right' ? near(r[0], L) : side === 'left' ? near(r[0], -1.5) : side === 'bottom' ? near(r[1], W) : near(r[1], -1.5));
+        });
+        return ok && G.BIO_SIDES.join() === 'right,bottom,left,top';
+      }],
+      ['Приклад майстра 5 × 3: Bio-1 ліворуч 2 м (6 м²) + Bio-2 знизу 1 м (5 м²) + стик 2 × 1 = 13 м²', function () {
+        var g = G.bioGeometry('rect', 5, 3, [{ n: 1, side: 'left', w: 2 }, { n: 2, side: 'bottom', w: 1 }], true);
+        var zone = 0; g.zones.forEach(function (z) { zone += G.signedArea(z.poly); });
+        var c = g.corners[0];
+        return g.zones.length === 1 && near(zone, 13) && g.corners.length === 1 &&
+          near(c[0], -2) && near(c[1], 3) && near(c[2], 2) && near(c[3], 1) && near(G.signedArea(g.union), 15 + 13);
+      }],
+      ['Навпроти (праворуч і ліворуч) — без стику: дві окремі зони', function () {
+        var g = G.bioGeometry('rect', 5, 3, [{ n: 1, side: 'right', w: 1 }, { n: 2, side: 'left', w: 2 }], true);
+        return g.corners.length === 0 && g.zones.length === 2 && near(G.signedArea(g.zones[0].poly) + G.signedArea(g.zones[1].poly), 9);
+      }],
+      ['«Разом»: площа спільного контуру = ставок + зони (прямокутник, овал, нестандартний; 1–4 Bio)', function () {
+        var ok = true, sets = [[['right', 1]], [['top', 2]], [['right', 1], ['bottom', 0.5]], [['left', 1], ['right', 2]],
+                                [['right', 1], ['bottom', 1], ['left', 1]], [['right', 1], ['bottom', 2], ['left', 0.5], ['top', 1]]];
+        ['rect', 'oval', 'custom'].forEach(function (shape) {
+          sets.forEach(function (set) {
+            var g = G.bioGeometry(shape, 6, 3, set.map(function (x, i) { return { n: i + 1, side: x[0], w: x[1] }; }), true);
+            var zone = 0;
+            g.zones.forEach(function (z) {
+              zone += G.signedArea(z.poly);
+              z.holes.forEach(function (h) { zone -= Math.abs(G.signedArea(h)); });
+              ok = ok && G.signedArea(z.poly) > 0;
+            });
+            ok = ok && near(G.signedArea(g.union), G.signedArea(G.outline(shape, 6, 3)) + zone, 1e-6);
+          });
+        });
+        return ok;
+      }],
+      ['«Разом», прямокутник 6 × 3 + Bio праворуч 2 м: зона 6 м², шов x = 6 на всю ширину', function () {
+        var g = G.bioGeometry('rect', 6, 3, [{ n: 1, side: 'right', w: 2 }], true);
+        var s = g.seams[0], ys = s.map(function (q) { return q[1]; });
+        return g.seams.length === 1 && near(G.signedArea(g.zones[0].poly), 6) && s.every(function (q) { return near(q[0], 6); }) &&
+          near(Math.min.apply(null, ys), 0) && near(Math.max.apply(null, ys), 3);
+      }],
+      ['«Разом», 3D: один котлован; біоплато −0,3, ставок −1,5; у кінцях шва — ребро підйому −0,3 → −1,5', function () {
+        var sc = G.buildScene({ shape: 'rect', L: 6, W: 3, D: 1.5, bio: { plates: [{ n: 1, side: 'right', w: 2 }], depth: 0.3, joined: true } });
+        var edges = G.sceneLines(sc, G.camera(135, 40)).filter(function (l) { return l.kind === 'edge'; });
+        var at = function (x, y) { return edges.filter(function (l) { return near(l.pts[0][0], x) && near(l.pts[0][1], y); }); };
+        var e = at(6, 0);
+        return sc.pits.length === 1 && G.groundAt(sc, [7, 1.5]) === -0.3 && G.groundAt(sc, [3, 1.5]) === -1.5 &&
+          e.length === 1 && near(e[0].pts[0][2], -0.3) && near(e[0].pts[1][2], -1.5);
+      }],
+      ['«Разом», овал: шов — дуга стінки ставка, контур виходить за торець на w', function () {
+        var g = G.bioGeometry('oval', 6, 3, [{ n: 1, side: 'right', w: 2 }], true);
+        var s = g.seams[0], xs = g.union.map(function (q) { return q[0]; });
+        var onWall = s.every(function (q) { return Math.abs(Math.pow((q[0] - 3) / 3, 2) + Math.pow((q[1] - 1.5) / 1.5, 2) - 1) < 0.01; });
+        return g.seams.length === 1 && s.length > 5 && onWall && near(Math.max.apply(null, xs), 8);
+      }],
+      ['«Окремо», 4 Bio: один котлован-кільце з «островом» — земля між ставком і біоплато', function () {
+        var sc = G.buildScene({ shape: 'rect', L: 6, W: 4, D: 1.5, bio: { depth: 0.3, plates: [{ n: 1, side: 'right', w: 1 }, { n: 2, side: 'bottom', w: 1 },
+          { n: 3, side: 'left', w: 1 }, { n: 4, side: 'top', w: 1 }] } });
+        var g = G.bioGap(6), bio = sc.pits[1];
+        return sc.pits.length === 2 && bio.holes.length === 1 && G.groundAt(sc, [6 + g / 2, 2]) === 0 &&
+          G.groundAt(sc, [6 + g + 0.5, 2]) === -0.3 && G.groundAt(sc, [-g - 0.5, -g - 0.5]) === -0.3 && G.groundAt(sc, [3, 2]) === -1.5;
       }],
       ['Рівні (A2.1): кільце-полиця з діркою — у дірці дно, на полиці її глибина', function () {
         var sc = G.buildScene({ shape: 'rect', L: 6, W: 4, D: 1.5,
@@ -94,37 +155,6 @@ var PondGeoTests = (function () {
       ['Рівні: кути прямокутної сходинки не губляться при спрощенні', function () {
         var sc = G.buildScene({ shape: 'rect', L: 8, W: 4, D: 1.6, levels: [{ poly: [[0, 0], [2, 0], [2, 4], [0, 4]], depth: 0.25 }] });
         return sc.pits[0].levels[0].poly.length === 4;
-      }],
-      // ---------- Біоплато «Разом» (v0.6.1, D56) ----------
-      ['«Разом»: площа спільного контуру = ставок + зона біоплато (прямокутник, овал, нестандартний; 4 сторони)', function () {
-        var ok = true;
-        [['rect', { L: 2, W: 1.5 }], ['rect', { L: 2, W: 4 }], ['oval', { L: 2, W: 1.5 }], ['oval', { L: 2, W: 5 }], ['custom', { L: 2, W: 3 }]].forEach(function (c) {
-          G.BIO_SIDES.forEach(function (side) {
-            var j = G.bioJoin(c[0], 6, 3, c[1], side), sp = G.signedArea(G.outline(c[0], 6, 3));
-            ok = ok && near(G.signedArea(j.union), sp + G.signedArea(j.zone), 1e-6) && G.signedArea(j.zone) > 0;
-          });
-        });
-        return ok;
-      }],
-      ['«Разом», прямокутник 6×3 + біоплато 2×1,5 праворуч: впритул, зона 3 м², шов x = 6 від 0,75 до 2,25', function () {
-        var j = G.bioJoin('rect', 6, 3, { L: 2, W: 1.5 }, 'right');
-        var xs = j.seam.map(function (q) { return q[0]; }), ys = j.seam.map(function (q) { return q[1]; }).sort();
-        return near(j.rect[0], 6) && near(G.signedArea(j.zone), 3) && xs.every(function (x) { return near(x, 6); }) &&
-          near(ys[0], 0.75) && near(ys[ys.length - 1], 2.25);
-      }],
-      ['«Разом», 3D: один котлован; у кутах стику ребро 0 → −0,3; на кінцях шва ребер немає; поверхня біоплато −0,3', function () {
-        var sc = G.buildScene({ shape: 'rect', L: 6, W: 3, D: 1.5, bio: { L: 2, W: 1.5, depth: 0.3, side: 'right', joined: true } });
-        var edges = G.sceneLines(sc, G.camera(135, 40)).filter(function (l) { return l.kind === 'edge'; });
-        var at = function (x, y) { return edges.filter(function (l) { return near(l.pts[0][0], x) && near(l.pts[0][1], y); }); };
-        var corner = at(6, 0.75);
-        return sc.pits.length === 1 && G.groundAt(sc, [7, 1.5]) === -0.3 && G.groundAt(sc, [3, 1.5]) === -1.5 &&
-          corner.length === 1 && near(corner[0].pts[1][2], -0.3) && at(6, 2.25).length === 1 &&
-          !edges.some(function (l) { return near(l.pts[0][2], -0.3) && near(l.pts[1][2], -1.5); });
-      }],
-      ['«Разом», овал: шов — дуга стінки ставка, біоплато виходить за торець на Lб', function () {
-        var j = G.bioJoin('oval', 6, 3, { L: 2, W: 1.5 }, 'right'), pond = G.outline('oval', 6, 3);
-        var onWall = j.seam.every(function (q) { return Math.abs(Math.pow((q[0] - 3) / 3, 2) + Math.pow((q[1] - 1.5) / 1.5, 2) - 1) < 0.01; });
-        return j.seam.length > 5 && onWall && near(j.rect[0] + j.rect[2], 8) && G.inside([j.rect[0] + 0.01, 1.5], pond);
       }],
       ['Межі сталі для всіх кутів огляду: ширина ≥ діагоналі ставка', function () {
         var b = G.stableBounds(rect, 40);

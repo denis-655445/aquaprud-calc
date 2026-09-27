@@ -120,7 +120,12 @@ var Format = (function () {
     out.push('Ставок ' + (SHAPE_NAMES[inp.shape] || '') + ': ' +
       qty(m.L) + ' × ' + qty(m.W) + ' × ' + qty(m.D) + ' м' + (inp.fish ? ', з рибою' : ', без риби'));
     out.push('Площа дзеркала ' + qty(m.S) + ' м², об\'єм води ' + qty(m.Vtotal) + ' м³');
-    if (m.hasBio) out.push('Біоплато: ' + qty(m.Lb) + ' × ' + qty(m.Wb) + ' м');
+    // Біоплато (v0.7.1): довжина × ширина кожного Bio; кілька — плюс стик і загальна площа
+    if (m.hasBio) {
+      var bp = m.bioPlates.map(function (p) { return qty(p.len) + ' × ' + qty(p.w); }).join(' + ') + ' м';
+      if (m.bioPlates.length > 1) bp += (m.bioJointArea > 0 ? ', стик ' + qty(m.bioJointArea) + ' м²' : '') + ', разом ' + qty(m.bioArea) + ' м²';
+      out.push('Біоплато: ' + bp);
+    }
     // Сходинки (Про-режим): глибина і видима площа кожного рівня, від мілкого до дна
     var st = m.steps;
     if (st && st.available) {

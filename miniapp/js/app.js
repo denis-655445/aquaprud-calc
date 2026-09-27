@@ -16,9 +16,14 @@
   // scene — вид схеми: '2d' / '3d' і номер ракурсу 0–3 (теж не скидається)
   // pro — Про-режим зі сходинками (D46): вмикається в службовій панелі й не скидається «Новим кошторисом»
   // bioJoin — біоплато на схемі «Разом» (впритул, одне дзеркало, D56): лише вигляд, теж не скидається
-  // slope_m — укіс стінок 1 : m (D61): задається в службовій панелі один раз і діє в усіх кошторисах (не скидається);
+  // slope_deg — укіс стінок у градусах (D61; v0.7.1 замість 1 : m): 90 — вертикальні, 30…90; задається в службовій
+  // панелі один раз і діє в усіх кошторисах (не скидається); m = 1 / tg α рахується для ядра (calcInputs)
+  // theme — тема інтерфейсу: 'dark' (за замовчуванням) / 'light' / 'system' (кольори Telegram або телефона), не скидається
   // scene.plan — вид 2D: 0 — план, 1 — розріз А–А, 2 — розріз Б–Б (v0.7.0)
-  var service = { labor_pct: null, markup_pct: null, hidePrices: false, fontScale: 1, scene: { mode: '2d', view: 0, plan: 0 }, pro: false, bioJoin: false, slope_m: 0 };
+  var service = { labor_pct: null, markup_pct: null, hidePrices: false, fontScale: 1, scene: { mode: '2d', view: 0, plan: 0 }, pro: false, bioJoin: false,
+                  slope_deg: 90, theme: 'dark' };
+  var SLOPE_MIN = 30, SLOPE_MAX = 90;   // межі кута укосу, ° (відповідь майстра v0.7.1: крок 1°, мінімум 30°)
+  var BIO_MAX = 4;                      // до 4 ділянок біоплато — по одній на сторону
   var FONT_SCALES = [1, 1.15, 1.3];
   var lastEst = null;
   var lastMetrics = null;  // метрики останнього розрахунку — для перемальовування схеми під час повороту
@@ -30,15 +35,16 @@
   var saveTimer = null;
   var serviceOpenedAt = 0; // час відкриття службової панелі
 
-  var NUM_FIELDS = ['L', 'W', 'D', 'Lb', 'Wb', 'distance', 'lift'];
+  var NUM_FIELDS = ['L', 'W', 'D', 'distance', 'lift'];
   var PICKS = ['filterId', 'pumpId', 'uvId'];
 
   // Порожній кошторис. manual: null = автопідбір (рекомендоване)
   function defaultState() {
     return {
       // steps — сходинки (Про-режим): рівнів = steps.length + 1 (дно), D38
-      // bioSide — з якого боку ставка біоплато: right / bottom / left / top (v0.6.0)
-      inputs: { shape: 'rect', L: '', W: '', D: '', fish: false, bio: false, Lb: '', Wb: '', bioSide: 'right', filmId: '', distance: '', lift: '', steps: [] },
+      // Біоплато (v0.7.1): bios — [{ side, w }] за номерами Bio-1…Bio-4; активні — перші bioCount, решта — кеш
+      // прибраних «−» (повертаються «+» з тією самою шириною і стороною); side — right / bottom / left / top
+      inputs: { shape: 'rect', L: '', W: '', D: '', fish: false, bio: false, bios: [], bioCount: 0, filmId: '', distance: '', lift: '', steps: [] },
       stepActive: 0,     // яку сходинку редагуємо (її точки — на 2D-схемі)
       stepsStash: [],    // прибрані «−» сходинки за номером: «+» повертає їх з точками й розмірами
       manual: { filterId: null, pumpId: null, uvId: null, skimmers: null, drains: null },
@@ -70,10 +76,21 @@
     }
   }
 
+  // Тема (v0.7.1): data-theme на <html> — CSS бере власні кольори («Темна» / «Світла») або кольори Telegram («Система»).
+  // Шапку й тло Telegram фарбуємо в колір застосунку, щоб не було смуги іншого кольору
+  var THEME_COLORS = { dark: { bg: '#0f1418', header: '#0f1418' }, light: { bg: '#eef1f4', header: '#eef1f4' } };
   function applyTheme() {
+    var t = ['dark', 'light', 'system'].indexOf(service.theme) === -1 ? 'dark' : service.theme;
+    document.documentElement.setAttribute('data-theme', t);
+    if (!inTelegram) return;
     var dark = tg.colorScheme === 'dark';
     document.documentElement.classList.toggle('tg-dark', dark);
     document.documentElement.classList.toggle('tg-light', !dark);
+    try {
+      var c = THEME_COLORS[t];
+      if (c && tgVersion('6.9')) { tg.setHeaderColor(c.header); tg.setBackgroundColor(c.bg); }
+      else if (tgVersion('6.1')) { tg.setHeaderColor('secondary_bg_color'); tg.setBackgroundColor(tg.themeParams.secondary_bg_color || tg.themeParams.bg_color || '#ffffff'); }
+    } catch (e) { /* стара версія Telegram — лишаються його кольори */ }
   }
 
   function haptic(kind) {
@@ -124,7 +141,11 @@
     var sc = service.scene || {};
     service.scene = { mode: sc.mode === '3d' ? '3d' : '2d', view: [0, 1, 2, 3].indexOf(sc.view) === -1 ? 0 : sc.view,
                       plan: [0, 1, 2].indexOf(sc.plan) === -1 ? 0 : sc.plan };
-    service.slope_m = slopeValue(service.slope_m);
+    // Укіс: з v0.7.0 у чернетці було m (1 : m) — переводимо в градуси; далі — лише градуси в межах 30…90
+    if (service.slope_m !== undefined) service.slope_deg = Slope.angleDeg(Calc.num(service.slope_m, 0));
+    delete service.slope_m;
+    service.slope_deg = slopeClamp(service.slope_deg);
+    if (['dark', 'light', 'system'].indexOf(service.theme) === -1) service.theme = 'dark';
     function exists(id) { return !!Calc.findItem(catalog, id); }
     var films = Calc.activeItems(catalog, 'film');
     if (!exists(state.inputs.filmId)) state.inputs.filmId = films.length ? films[0].id : '';
@@ -135,7 +156,7 @@
     if (state.decor.waterfallId !== 'none' && !exists(state.decor.waterfallId)) state.decor.waterfallId = 'none';
     if (state.decor.lightId !== 'none' && !exists(state.decor.lightId)) state.decor.lightId = 'none';
     Object.keys(state.decor.extras).forEach(function (id) { if (!exists(id)) delete state.decor.extras[id]; });
-    if (PondGeo.BIO_SIDES.indexOf(state.inputs.bioSide) === -1) state.inputs.bioSide = 'right';
+    validateBio();
     // Сходинки з чернетки: лише масив об'єктів і не більше за steps_max
     service.pro = !!service.pro;
     service.bioJoin = !!service.bioJoin;
@@ -172,9 +193,7 @@
     var inp = state.inputs;
     NUM_FIELDS.forEach(function (id) { $(id).value = inp[id]; });
     $('filmId').value = inp.filmId;
-    $('bio').checked = !!inp.bio;
-    UI.setCollapse($('bioFields'), inp.bio);
-    syncBioSide();
+    syncBio();
     document.querySelectorAll('[data-shape]').forEach(function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.shape === inp.shape));
     });
@@ -232,13 +251,21 @@
   }
 
   // Параметри для ядра: сходинки враховуємо лише в Про-режимі (вимкнений режим не видаляє введене)
-  // Укіс: число від 0 до 10 (порожньо / помилка → 0)
-  function slopeValue(v) { var m = Calc.num(v, 0); return m > 0 ? Math.min(10, m) : 0; }
+  // Кут укосу: 30…90°, до 0,1° (порожньо / помилка → 90, тобто вертикальні стінки)
+  function slopeClamp(v) {
+    var a = Calc.num(v, SLOPE_MAX);
+    return Math.round(Math.max(SLOPE_MIN, Math.min(SLOPE_MAX, a)) * 10) / 10;
+  }
 
   function calcInputs() {
     var inp = Object.assign({}, state.inputs);
     inp.steps = service.pro ? state.inputs.steps : [];
-    inp.slope_m = service.slope_m;                     // укіс — зі службової панелі, спільний для всіх кошторисів
+    // Біоплато: лише активні Bio (кеш прибраних у розрахунок не йде)
+    inp.bios = state.inputs.bios.slice(0, state.inputs.bioCount);
+    delete inp.bioCount;
+    // Укіс — зі службової панелі, спільний для всіх кошторисів: ядро рахує з m = 1 / tg α
+    inp.slope_deg = service.slope_deg;
+    inp.slope_m = Slope.mFromDeg(service.slope_deg);
     return inp;
   }
 
@@ -250,6 +277,7 @@
     var m = rec.metrics;
 
     lastMetrics = m;
+    syncBioRows();                                       // довжини Bio й площа залежать від L і W
     syncSteps();
     drawScene();
 
@@ -635,14 +663,18 @@
   var secRetry = false;                                // підпис змінився — перемальовуємо лише один раз
   var cutMemo = { key: null, value: null };
   function cutGeometry(m) {
-    var shape = state.inputs.shape, L = m.L, W = m.W, D = m.D, side = state.inputs.bioSide;
+    var shape = state.inputs.shape, L = m.L, W = m.W, D = m.D;
     var bioD = Calc.num(catalog.settings.bio_depth_m), levels = sceneLevels(m);
-    var key = JSON.stringify([shape, L, W, D, m.slopeM, m.hasBio, m.Lb, m.Wb, side, service.bioJoin, bioD, service.pro, levelsMemo.steps && levelsMemo.steps.layers.length]);
+    var plates = m.hasBio ? m.bioPlates.map(function (p) { return { n: p.n, side: p.side, w: p.w }; }) : [];
+    var key = JSON.stringify([shape, L, W, D, m.slopeM, plates, service.bioJoin, bioD, service.pro, levelsMemo.steps && levelsMemo.steps.layers.length]);
     if (cutMemo.key === key && cutMemo.levels === levels) return cutMemo.value;
-    var jn = m.hasBio && service.bioJoin ? PondGeo.bioJoin(shape, L, W, { L: m.Lb, W: m.Wb }, side) : null;
-    var bioPoly = jn ? jn.zone : m.hasBio ? PondGeo.rect.apply(null, PondGeo.bioRect(L, W, { L: m.Lb, W: m.Wb }, side)) : null;
+    // Біоплато (v0.7.1): «Разом» — спільний контур і шви; «Окремо» — котловани (кільце 4 Bio — з «островом»)
+    var bg = plates.length ? PondGeo.bioGeometry(shape, L, W, plates, service.bioJoin) : null;
+    var jn = bg && bg.union ? bg : null;
+    var extra = jn ? [{ poly: jn.union, holes: [], depth: bioD }]
+      : bg ? bg.pits.map(function (pt) { return { poly: pt.outline, holes: pt.holes, depth: bioD }; }) : [];
     var f = Slope.field({ outline: PondGeo.outline(shape, L, W), D: D, m: m.slopeM, levels: levels,
-                          seam: jn && bioD > 0 ? { pts: jn.seam, depth: bioD } : null });
+                          seam: jn && bioD > 0 ? { lines: jn.seams, depth: bioD } : null });
     // Де лінія (x або y = c) перетинає многокутник: координати перетинів уздовж лінії
     function cross(poly, axis, c) {
       var out = [];
@@ -653,14 +685,18 @@
       return out;
     }
     function line(axis) {                               // axis 0 — А–А (уздовж x), 1 — Б–Б (уздовж y)
-      var c = axis ? L / 2 : W / 2, lo = 0, hi = axis ? W : L, bx = bioPoly ? cross(bioPoly, axis, c) : [];
-      var blo = bx.length ? Math.min.apply(null, bx) : null, bhi = bx.length ? Math.max.apply(null, bx) : null;
-      if (bx.length) { lo = Math.min(lo, blo); hi = Math.max(hi, bhi); }
+      var c = axis ? L / 2 : W / 2, lo = 0, hi = axis ? W : L, bx = [];
+      extra.forEach(function (e) { bx = bx.concat(cross(e.poly, axis, c)); });
+      if (bx.length) { lo = Math.min(lo, Math.min.apply(null, bx)); hi = Math.max(hi, Math.max.apply(null, bx)); }
       var mg = Math.max(0.3, 0.06 * (hi - lo));         // земля з обох боків
       var p = function (v) { return axis ? [c, v] : [v, c]; };
-      var samples = Slope.profile(f, p(lo - mg), p(hi + mg), bioPoly ? [{ poly: bioPoly, depth: bioD }] : []);
+      var samples = Slope.profile(f, p(lo - mg), p(hi + mg), extra);
       var dims = [{ t0: mg - lo, t1: mg - lo + (axis ? W : L), text: Format.qty(axis ? W : L) + ' м' }];
-      if (bx.length && bioD > 0) dims.push({ t0: blo - lo + mg, t1: bhi - lo + mg, text: 'біоплато' });
+      // Розмір кожного Bio, яке перетинає лінія розрізу: «Bio-N»
+      if (bioD > 0 && bg) bg.rects.forEach(function (r) {
+        var q = r.r, u0 = axis ? q[0] : q[1], u1 = u0 + (axis ? q[2] : q[3]), v0 = axis ? q[1] : q[0], v1 = v0 + (axis ? q[3] : q[2]);
+        if (c > u0 && c < u1) dims.push({ t0: v0 - lo + mg, t1: v1 - lo + mg, text: 'Bio-' + r.n });
+      });
       return { ends: [p(lo), p(hi)], section: { samples: samples, dims: dims } };
     }
     var a = line(0), b = line(1);
@@ -688,12 +724,12 @@
     });
     $('sketch').classList.toggle('is-3d', is3d);
     $('sketch').setAttribute('aria-label', is3d ? 'Схема ставка в 3D, ракурс ' + (service.scene.view + 1) + ' з 4' : 'Схема ставка: ' + PLAN_NAMES[planView].toLowerCase());
-    var slopeTxt = m.slopeM > 0 ? 'укіс 1 : ' + Format.qty(m.slopeM) + ' (' + Math.round(Slope.angleDeg(m.slopeM)) + '°)' : '';
+    var slopeTxt = m.slopeM > 0 ? 'укіс ' + Format.qty(service.slope_deg) + '° (1 : ' + ratioTxt(m.slopeM) + ')' : '';
     $('sceneCaption').hidden = !dims || (!is3d && !planView);
     // Підпис — до вимірювання кнопок: порожній підпис має нульовий розмір і креслення налізло б на нього
     if (is3d && dims) {
       $('sceneCaption').textContent = Format.qty(m.L) + ' × ' + Format.qty(m.W) + ' м, глибина ' + Format.qty(m.D) + ' м' +
-        (state.inputs.shape === 'custom' ? ' (форма умовна)' : '');   // укіс у 3D — з v0.7.1 (похилі стінки)
+        (state.inputs.shape === 'custom' ? ' (форма умовна)' : '');   // укіс у 3D не малюємо (v0.7.1: лише в розрахунку й розрізах)
     } else if (dims && planView) {
       var kx = secK[planView] > 1 ? ' · вертикаль ×' + Format.qty(secK[planView]) : '';
       $('sceneCaption').textContent = PLAN_NAMES[planView] + (slopeTxt ? ' · ' + slopeTxt : '') + kx;
@@ -715,7 +751,7 @@
         if (r.k !== secK[planView] && !secRetry) { secK[planView] = r.k; secRetry = true; drawScene(); secRetry = false; }
         return;
       }
-      UI.drawSketch($('sketch'), state.inputs.shape, m, sketchOverlay(m), { side: state.inputs.bioSide, joined: service.bioJoin },
+      UI.drawSketch($('sketch'), state.inputs.shape, m, sketchOverlay(m), { joined: service.bioJoin },
         { box: sceneBox.box, avoid: sceneBox.avoid, fs: fs,
           sections: cut ? { aa: cut.aa, bb: cut.bb } : null, toe: cut ? cut.toe : [] });
       return;
@@ -725,7 +761,7 @@
     var bioDepth = Calc.num(catalog.settings.bio_depth_m);
     var o = {
       shape: state.inputs.shape, L: m.L, W: m.W, D: m.D,
-      bio: m.hasBio ? { L: m.Lb, W: m.Wb, depth: bioDepth, side: state.inputs.bioSide, joined: service.bioJoin } : null,
+      bio: m.hasBio ? { plates: m.bioPlates.map(function (p) { return { n: p.n, side: p.side, w: p.w }; }), depth: bioDepth, joined: service.bioJoin } : null,
       levels: sceneLevels(m), fast: !!fromAnim,
       azimuth: sceneAz, views: VIEW_AZ,
       box: sceneBox.box, avoid: sceneBox.avoid, fs: Number(service.fontScale) || 1
@@ -752,9 +788,11 @@
   var tweenScene = false, fitTween = null, shownFit = null;
   function lerpFit(a, b, e) {
     var l = function (x, y) { return x + (y - x) * e; };
-    // views — зсув, висота і місце підпису «біоплато» кожного ракурсу (D58, D59): переходять плавно разом з масштабом
+    // Зсуви підписів «Bio-N» (масив; кількість Bio могла змінитися — бракує → 0)
+    var lk = function (x, y) { x = x || []; y = y || []; return y.map(function (v, i) { return l(x[i] || 0, v || 0); }); };
+    // views — зсув, висота і місця підписів кожного ракурсу (D58, D59): переходять плавно разом з масштабом
     var views = (a.views || []).length === (b.views || []).length ? (b.views || []).map(function (v, i) {
-      return { az: v.az, t: l(a.views[i].t, v.t), h: l(a.views[i].h, v.h), k: l(a.views[i].k || 0, v.k || 0) };
+      return { az: v.az, t: l(a.views[i].t, v.t), h: l(a.views[i].h, v.h), k: lk(a.views[i].k, v.k) };
     }) : b.views;
     return { s: l(a.s, b.s), offX: l(a.offX, b.offX), t: l(a.t, b.t), h: l(a.h, b.h), minY: l(a.minY, b.minY),
              center: [l(a.center[0], b.center[0]), l(a.center[1], b.center[1])], views: views };
@@ -852,13 +890,24 @@
     $('markupPct').textContent = eff.markup_pct;
     var withEq = catalog.settings.labor_base === 'materials+equipment';
     $('laborLabel').textContent = 'Роботи, % від ' + (withEq ? 'матеріалів і обладнання' : 'матеріалів');
-    setVal('slopeM', service.slope_m ? Format.qty(service.slope_m) : '0');
-    syncSlopeDeg();
+    syncSlope();
+    syncTheme();
   }
-  // Кут до горизонту поруч із полем: 1 : m → atan(1/m)
-  function syncSlopeDeg() {
-    var a = Slope.angleDeg(service.slope_m);
-    $('slopeDeg').textContent = (Math.round(a * 10) / 10).toString().replace('.', ',') + '°';
+  // Кут укосу: значення в полі (якщо його не редагують), межі «−» / «+», закладення 1 : m у підказці
+  function syncSlope(keepField) {
+    var a = service.slope_deg, m = Slope.mFromDeg(a);
+    if (!keepField) $('slopeDeg').value = Format.qty(a);
+    $('slopeMinus').disabled = a <= SLOPE_MIN;
+    $('slopePlus').disabled = a >= SLOPE_MAX;
+    $('slopeRatio').textContent = '1 : ' + ratioTxt(m);
+  }
+  // Закладення m до сотих без зайвих нулів: 0,09 / 1,73 / 1 (кут 85° → 1 : 0,09)
+  function ratioTxt(m) { return Format.number(m, 2).replace(/,?0+$/, '') || '0'; }
+  // Тема: яка кнопка натиснута
+  function syncTheme() {
+    document.querySelectorAll('[data-theme-opt]').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.themeOpt === service.theme));
+    });
   }
 
   // Довге натискання на заголовок — запасний спосіб відкрити панель (поза Telegram або старі версії)
@@ -950,22 +999,41 @@
     document.querySelectorAll('[data-fish]').forEach(function (b) {
       b.addEventListener('click', function () { state.inputs.fish = b.dataset.fish === '1'; haptic('select'); syncForm(); changed(); });
     });
+    // Біоплато (v0.7.1): перемикач, кількість Bio, ширина кожного і ‹ › — сторона ставка
     $('bio').addEventListener('change', function (e) {
       state.inputs.bio = e.target.checked;
-      UI.setCollapse($('bioFields'), e.target.checked);
-      syncBioSide();
-      tweenScene = true;                                   // 3D плавно змінює масштаб
-      changed();
+      if (state.inputs.bio && !state.inputs.bioCount) bioAdd();  // увімкнули — одразу Bio-1 (з кешу, якщо було)
+      bioSettle();
+      bioChanged();
     });
-    // 6. ‹ › — біоплато на сусідню сторону ставка (› — за годинниковою: праворуч → знизу → ліворуч → зверху)
-    document.querySelectorAll('[data-bioside]').forEach(function (b) {
+    document.querySelectorAll('[data-biocount]').forEach(function (b) {
       b.addEventListener('click', function () {
-        var sides = PondGeo.BIO_SIDES, i = sides.indexOf(state.inputs.bioSide);
-        state.inputs.bioSide = sides[(i + Number(b.dataset.bioside) + 4) % 4];
-        syncBioSide();
-        tweenScene = true;
+        var inp = state.inputs;
+        if (Number(b.dataset.biocount) > 0) { if (inp.bioCount < BIO_MAX) bioAdd(); }
+        else if (inp.bioCount > 0) {
+          inp.bioCount--;                                  // прибране Bio лишається в кеші (bios) — «+» поверне його
+          if (!inp.bioCount) inp.bio = false;              // «−» з 1 → 0: біоплато вимикається
+        }
         haptic('select');
+        bioChanged();
+      });
+    });
+    [0, 1, 2, 3].forEach(function (i) {
+      $('bioW' + (i + 1)).addEventListener('input', function (e) {
+        if (state.inputs.bios[i]) state.inputs.bios[i].w = e.target.value;
+        tweenScene = true;
         changed();
+      });
+    });
+    // ‹ › — Bio на іншу сторону (› — за годинниковою: праворуч → знизу → ліворуч → зверху); зайняті сторони пропускаємо
+    document.querySelectorAll('[data-biomove]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var i = Number(b.dataset.biomove), bio = state.inputs.bios[i];
+        var next = bio && bioFreeSide(bio.side, Number(b.dataset.d), i, false);
+        if (!next) return;
+        bio.side = next;
+        haptic('select');
+        bioChanged();
       });
     });
 
@@ -1074,11 +1142,41 @@
       });
     });
     $('hidePrices').addEventListener('change', function (e) { service.hidePrices = e.target.checked; changed(); });
-    // Укіс (D61): зберігається в службових налаштуваннях і діє на всі кошториси, доки його не змінять тут
-    $('slopeM').addEventListener('input', function (e) {
-      service.slope_m = slopeValue(e.target.value);
-      syncSlopeDeg();
+    // Укіс (D61, v0.7.1 — у градусах): зберігається в службових налаштуваннях і діє на всі кошториси.
+    // «−» / «+» — крок 1°; число можна ввести з клавіатури: > 90 одразу стає 90, < 30 — після виходу з поля
+    document.querySelectorAll('[data-slope]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        service.slope_deg = slopeClamp(service.slope_deg + Number(b.dataset.slope));
+        syncSlope();
+        haptic('select');
+        changed();
+      });
+    });
+    $('slopeDeg').addEventListener('focus', function (e) { e.target.select(); });
+    $('slopeDeg').addEventListener('input', function (e) {
+      var v = Calc.num(e.target.value, NaN);
+      if (v > SLOPE_MAX) { e.target.value = String(SLOPE_MAX); v = SLOPE_MAX; }
+      if (!(v >= SLOPE_MIN)) return;                       // ще вводять (напр., «8» перед «85») — розрахунок не чіпаємо
+      service.slope_deg = slopeClamp(v);
+      syncSlope(true);
       changed();
+    });
+    $('slopeDeg').addEventListener('blur', function () {
+      service.slope_deg = slopeClamp(Calc.num($('slopeDeg').value, NaN) >= SLOPE_MIN ? $('slopeDeg').value : SLOPE_MIN);
+      syncSlope();
+      changed();
+    });
+    $('slopeDeg').addEventListener('keydown', function (e) { if (e.key === 'Enter') e.target.blur(); });
+    // Тема інтерфейсу: одразу застосовуємо й зберігаємо (не скидається «Новим кошторисом»)
+    document.querySelectorAll('[data-theme-opt]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        service.theme = b.dataset.themeOpt;
+        applyTheme();
+        syncTheme();
+        haptic('select');
+        saveDraft();
+        drawScene();
+      });
     });
     // Біоплато на схемі «Разом / Окремо» (D56): лише вигляд 2D / 3D — перераховувати кошторис не треба
     document.querySelectorAll('[data-biojoin]').forEach(function (b) {
@@ -1103,12 +1201,106 @@
     $('btnReset').addEventListener('click', onReset);
   }
 
-  // ---------- Біоплато: сторона ставка ----------
+  // ---------- Біоплато (v0.7.1): Bio-1 … Bio-4 ----------
   var BIO_SIDE_NAMES = { right: 'праворуч', bottom: 'знизу', left: 'ліворуч', top: 'зверху' };
-  function syncBioSide() {
-    $('bioSide').hidden = !state.inputs.bio;
-    // Слово на екрані не показуємо (сторону видно на схемі) — лише для програм читання екрана
-    $('bioSideLabel').textContent = 'Біоплато ' + (BIO_SIDE_NAMES[state.inputs.bioSide] || BIO_SIDE_NAMES.right);
+  var BIO_CYCLE = ['right', 'bottom', 'left', 'top'];     // за годинниковою стрілкою на схемі
+
+  // Сторони, зайняті активними Bio, крім Bio з номером except (індекс)
+  function bioTaken(except) {
+    var t = {};
+    state.inputs.bios.slice(0, state.inputs.bioCount).forEach(function (b, i) { if (i !== except && b) t[b.side] = true; });
+    return t;
+  }
+  // Наступна вільна сторона від from у напрямку dir (±1); self = true — сама from теж годиться (якщо вільна)
+  function bioFreeSide(from, dir, except, self) {
+    var t = bioTaken(except), i0 = Math.max(0, BIO_CYCLE.indexOf(from));
+    if (self && !t[from]) return from;
+    for (var k = 1; k < 4; k++) {
+      var sd = BIO_CYCLE[((i0 + dir * k) % 4 + 4) % 4];
+      if (!t[sd]) return sd;
+    }
+    return null;
+  }
+  // «+»: наступне Bio — з кешу (та сама ширина й сторона; сторону зайняли — перша вільна за годинниковою)
+  // або нове — на першу вільну сторону за годинниковою після попереднього Bio
+  function bioAdd() {
+    var inp = state.inputs, n = inp.bioCount, cached = inp.bios[n];
+    if (cached) cached.side = bioFreeSide(cached.side, 1, n, true);
+    else {
+      var prev = n ? inp.bios[n - 1].side : 'top';        // перше Bio — праворуч (після «зверху»)
+      inp.bios[n] = { side: bioFreeSide(prev, 1, n, false) || 'right', w: '' };
+    }
+    inp.bioCount = n + 1;
+    inp.bio = true;
+  }
+  // Сторони активних Bio різні (після відновлення чернетки чи кешу)
+  function bioSettle() {
+    var inp = state.inputs;
+    for (var i = 0; i < inp.bioCount; i++) {
+      var t = {};
+      for (var j = 0; j < i; j++) t[inp.bios[j].side] = true;
+      if (t[inp.bios[i].side]) inp.bios[i].side = bioFreeSide(inp.bios[i].side, 1, i, true);
+    }
+  }
+  // Чернетка: перенесення з v0.7.0 (одне біоплато Lб × Wб → Bio-1 шириною Lб — «від ставка», D54) і перевірка
+  function validateBio() {
+    var inp = state.inputs;
+    if (!Array.isArray(inp.bios)) inp.bios = [];
+    if (!inp.bios.length && inp.Lb !== undefined && String(inp.Lb).trim() !== '') {
+      inp.bios = [{ side: BIO_CYCLE.indexOf(inp.bioSide) === -1 ? 'right' : inp.bioSide, w: str(inp.Lb) }];
+      inp.bioCount = 1;
+    }
+    delete inp.Lb; delete inp.Wb; delete inp.bioSide;
+    inp.bios = inp.bios.filter(function (b) { return b && typeof b === 'object'; }).slice(0, BIO_MAX).map(function (b) {
+      return { side: BIO_CYCLE.indexOf(b.side) === -1 ? 'right' : b.side, w: str(b.w) };
+    });
+    inp.bioCount = Math.max(0, Math.min(inp.bios.length, Math.round(Calc.num(inp.bioCount, 0))));
+    inp.bio = !!inp.bio;
+    bioSettle();
+    if (inp.bio && !inp.bioCount) bioAdd();
+  }
+
+  // Зміна кількості, сторони чи перемикача: екран, 3D плавно (D55), перерахунок
+  function bioChanged() {
+    syncBio();
+    tweenScene = true;
+    changed();
+  }
+
+  // Перемикач, лічильник і рядки Bio (значення полів — лише тут, щоб не заважати введенню)
+  function syncBio() {
+    var inp = state.inputs, on = !!inp.bio;
+    $('bio').checked = on;
+    $('bioCounter').hidden = !on;
+    $('bioCount').textContent = inp.bioCount;
+    document.querySelector('[data-biocount="1"]').disabled = inp.bioCount >= BIO_MAX;
+    UI.setCollapse($('bioFields'), on);
+    for (var i = 0; i < BIO_MAX; i++) {
+      var active = on && i < inp.bioCount;
+      UI.setCollapse($('bioRow' + (i + 1)), active);
+      var el = $('bioW' + (i + 1));
+      if (inp.bios[i] && el.value !== inp.bios[i].w) el.value = inp.bios[i].w;
+    }
+    syncBioRows();
+  }
+
+  // Довжина кожного Bio (сторона ставка), доступність ‹ ›, рядок про стик і загальну площу
+  function syncBioRows() {
+    var inp = state.inputs, L = Calc.num(inp.L), W = Calc.num(inp.W);
+    for (var i = 0; i < inp.bioCount; i++) {
+      var b = inp.bios[i], len = b.side === 'right' || b.side === 'left' ? W : L;
+      $('bioLen' + (i + 1)).textContent = '× ' + (len > 0 ? Format.qty(len) : '—') + ' м';
+      var free = !!bioFreeSide(b.side, 1, i, false);       // усі інші сторони зайняті — ‹ › не діють (Bio-4)
+      $('bioRow' + (i + 1)).querySelectorAll('[data-biomove]').forEach(function (btn) { btn.disabled = !free; });
+      $('bioSideLabel' + (i + 1)).textContent = 'Bio-' + (i + 1) + ' ' + BIO_SIDE_NAMES[b.side];
+    }
+    var bl = Calc.bioLayout(calcInputs(), L, W), show = inp.bio && inp.bioCount > 1 && bl.area > 0;
+    if (show) {
+      // Нерозривний пробіл: «20 м²» не розривається між рядками
+      $('bioSum').innerHTML = (bl.jointArea > 0 ? 'Додано <strong>' + Format.qty(bl.jointArea) + '\u00a0м²</strong> на стик; ' : '') +
+        'загальна площа <strong>' + Format.qty(bl.area) + '\u00a0м²</strong>';
+    }
+    UI.setCollapse($('bioSumBox'), show);
   }
 
   // Службова панель: яка кнопка «Разом / Окремо» натиснута
@@ -1384,6 +1576,7 @@
       buildForm();
       restoreDraft();
       validateIds();
+      applyTheme();                                      // тема з чернетки (у <head> — те саме, до першого малювання)
       syncForm();
       bindEvents();
       $('footer').textContent = 'Версія ' + CONFIG.APP_VERSION + '. Каталог ' + cat.version + '.';

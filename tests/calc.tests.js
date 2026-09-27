@@ -29,7 +29,7 @@ var CalcTests = (function () {
   };
 
   // Базовий ставок 2 × 2 × 1 м без риби, фільтр за 5 м від ставка
-  var POND = { shape: 'rect', L: '2', W: '2', D: '1', fish: false, bio: false, Lb: '', Wb: '', distance: '5', lift: '' };
+  var POND = { shape: 'rect', L: '2', W: '2', D: '1', fish: false, bio: false, bios: [], distance: '5', lift: '' };
   var SEL = { filmId: 'FLM', filterId: 'FLT-A', pumpId: 'kit', uvId: 'none', skimmerId: 'SKM', skimmers: 1, drainId: 'none', drains: 0, waterfallId: 'none', lightId: 'none', lights: 0, extras: {} };
 
   function near(a, b) { return Math.abs(a - b) < 1e-6; }
@@ -129,6 +129,37 @@ var CalcTests = (function () {
         var est = Calc.buildEstimate(POND, SEL, FIXTURE, { markup_pct: -10 });
         return Format.estimateText(est, POND, {}).indexOf('Знижка 10%') !== -1;
       }],
+      // ---------- Біоплато v0.7.1: Bio-1…Bio-4 на всю сторону, стики в кутах ----------
+      ['Біоплато, приклад майстра 5 × 3: Bio-1 2 м по стороні 3 м + Bio-2 1 м по стороні 5 м → 6 + 5 + стик 2 = 13 м²', function () {
+        var m = Calc.computeMetrics({ shape: 'rect', L: 5, W: 3, D: 1, bio: true, bios: [{ side: 'left', w: '2' }, { side: 'bottom', w: '1' }] }, s);
+        return m.hasBio && m.bioPlates.length === 2 && near(m.bioPlates[0].area, 6) && near(m.bioPlates[1].area, 5) &&
+          near(m.bioJointArea, 2) && near(m.bioArea, 13) && near(m.Vb, 13 * 0.3) && near(m.Vtotal, m.V + 3.9);
+      }],
+      ['Плівка біоплато: стик — до Bio з меншим номером: (3+1+0,6+1)·(2+0,6+1) + (5+1,6)·(1+1,6) = 37,32 м²', function () {
+        var m = Calc.computeMetrics({ shape: 'rect', L: 5, W: 3, D: 1, bio: true, bios: [{ side: 'left', w: 2 }, { side: 'bottom', w: 1 }] }, s);
+        return near(m.bioPlates[0].filmLen, 4) && near(m.bioPlates[1].filmLen, 5) && near(m.bioFilmArea, 5.6 * 3.6 + 6.6 * 2.6) &&
+          near(m.filmAreaTotal, m.filmArea + m.bioFilmArea);
+      }],
+      ['Біоплато навпроти (праворуч і ліворуч) — без стику; вимкнене / без ширини / та сама сторона — не рахується', function () {
+        var opp = Calc.computeMetrics({ shape: 'rect', L: 5, W: 3, D: 1, bio: true, bios: [{ side: 'right', w: 1 }, { side: 'left', w: 2 }] }, s);
+        var off = Calc.computeMetrics({ shape: 'rect', L: 5, W: 3, D: 1, bio: false, bios: [{ side: 'right', w: 1 }] }, s);
+        var empty = Calc.computeMetrics({ shape: 'rect', L: 5, W: 3, D: 1, bio: true, bios: [{ side: 'right', w: '' }, { side: 'top', w: 1 }] }, s);
+        var dup = Calc.computeMetrics({ shape: 'rect', L: 5, W: 3, D: 1, bio: true, bios: [{ side: 'right', w: 1 }, { side: 'right', w: 2 }] }, s);
+        return near(opp.bioArea, 9) && opp.bioJoints.length === 0 && !off.hasBio && near(off.Vb, 0) &&
+          empty.bioPlates.length === 1 && empty.bioPlates[0].n === 2 && near(empty.bioArea, 5) && near(dup.bioArea, 3);
+      }],
+      ['Біоплато з 4 боків: 4 стики; овал — довжина = габарит L або W', function () {
+        var m = Calc.computeMetrics({ shape: 'rect', L: 5, W: 3, D: 1, bio: true, bios: [{ side: 'right', w: 1 }, { side: 'bottom', w: 1 }, { side: 'left', w: 1 }, { side: 'top', w: 1 }] }, s);
+        var o = Calc.computeMetrics({ shape: 'oval', L: 6, W: 4, D: 1, bio: true, bios: [{ side: 'top', w: 1 }] }, s);
+        return m.bioJoints.length === 4 && near(m.bioArea, 16 + 4) && near(o.bioArea, 6);
+      }],
+      ['Текст кошторису: «Біоплато: 3 × 2 + 5 × 1 м, стик 2 м², разом 13 м²»', function () {
+        var inp = copy(POND, { L: 5, W: 3, bio: true, bios: [{ side: 'left', w: 2 }, { side: 'bottom', w: 1 }] });
+        var t = Format.estimateText(Calc.buildEstimate(inp, SEL, FIXTURE, {}), inp, {});
+        var one = copy(POND, { L: 5, W: 3, bio: true, bios: [{ side: 'right', w: 1.5 }] });
+        var t1 = Format.estimateText(Calc.buildEstimate(one, SEL, FIXTURE, {}), one, {});
+        return t.indexOf('Біоплато: 3 × 2 + 5 × 1 м, стик 2 м², разом 13 м²') !== -1 && t1.indexOf('Біоплато: 3 × 1,5 м\n') !== -1;
+      }],
       ['Форматування: 1234567,5 → «1 234 567,50 грн»', function () {
         var n = Format.NBSP;
         return Format.money(1234567.5) === '1' + n + '234' + n + '567,50' + n + 'грн';
@@ -139,7 +170,7 @@ var CalcTests = (function () {
         [1, 3, 6, 10, 20, 30].forEach(function (L) { [1, 3, 6, 10].forEach(function (W) {
           [0.5, 1.5, 3, 5].forEach(function (D) { [false, true].forEach(function (fish) {
             [0, 30].forEach(function (distance) { ['rect', 'oval', 'custom'].forEach(function (shape) {
-              var r = Calc.recommend({ shape: shape, L: L, W: W, D: D, fish: fish, bio: true, Lb: 10, Wb: 5,
+              var r = Calc.recommend({ shape: shape, L: L, W: W, D: D, fish: fish, bio: true, bios: [{ side: 'right', w: 5 }],
                 distance: distance, lift: '' }, sample, null);
               if (r.filterId === 'none' || r.uvId === 'none' || r.pump.id === 'none') ok = false;
             }); });

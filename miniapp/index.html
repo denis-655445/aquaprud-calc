@@ -9,7 +9,15 @@
   <!-- SDK Telegram Mini Apps: дає Telegram.WebApp (тема, кнопки, вібровідгук) -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <!-- ?v=N — версія файлу: змінюємо при кожному оновленні, бо Telegram кешує Mini App -->
-  <link rel="stylesheet" href="css/style.css?v=11">
+  <link rel="stylesheet" href="css/style.css?v=12">
+  <!-- Тема (v0.7.1) — до першого малювання, щоб екран не блимав світлим: читаємо з чернетки (ключ — CONFIG.DRAFT_KEY) -->
+  <script>
+    (function () {
+      var t = 'dark';                                         // за замовчуванням — темна
+      try { var d = JSON.parse(localStorage.getItem('aquaprud_draft_v1') || 'null'); if (d && d.service && d.service.theme) t = d.service.theme; } catch (e) {}
+      document.documentElement.setAttribute('data-theme', t === 'light' || t === 'system' ? t : 'dark');
+    })();
+  </script>
 </head>
 <body>
   <header class="head">
@@ -103,33 +111,101 @@
         <button type="button" class="seg__btn" data-fish="1">З рибою</button>
       </div>
 
-      <!-- Натискати можна на перемикач і на саме слово, але не правіше від нього -->
+      <!-- Біоплато (v0.7.1): 1–4 ділянки Bio-N, кожна на всю сторону ставка; кількість — праворуч від перемикача.
+           Натискати можна на перемикач і на саме слово, але не правіше від нього -->
       <div class="switch">
         <label class="switch__control">
           <input id="bio" type="checkbox">
           <span class="switch__track" aria-hidden="true"></span>
           <span class="switch__text">Біоплато</span>
         </label>
-        <!-- Біоплато з увімкненим перемикачем: ‹ › переносять його на сусідню сторону ставка (притиснуті до правого краю).
-             Сторону видно на схемі; слово — лише для програм читання екрана (клас vh) -->
-        <div id="bioSide" class="bio-side" hidden>
-          <button type="button" class="bio-side__btn" data-bioside="-1" aria-label="Перенести біоплато проти годинникової стрілки">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg>
-          </button>
-          <span id="bioSideLabel" class="vh" aria-live="polite">Біоплато праворуч</span>
-          <button type="button" class="bio-side__btn" data-bioside="1" aria-label="Перенести біоплато за годинниковою стрілкою">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>
-          </button>
+        <!-- Кількість Bio: «−» з 1 вимикає біоплато; прибране «−» пам'ятається й повертається «+» -->
+        <div id="bioCounter" class="counter counter--inline" hidden>
+          <button type="button" class="counter__btn" data-biocount="-1" aria-label="Менше ділянок біоплато">−</button>
+          <output id="bioCount" class="counter__value">1</output>
+          <button type="button" class="counter__btn" data-biocount="1" aria-label="Більше ділянок біоплато">+</button>
         </div>
       </div>
-      <!-- Плавне розкриття: висота анімується через CSS (клас is-open) -->
+      <!-- Плавне розкриття: висота анімується (UI.setCollapse); кожен рядок Bio — теж -->
       <div id="bioFields" class="collapse">
         <div class="collapse__inner">
-          <div class="grid2">
-            <label class="field"><span class="field__label">Довжина біоплато, м</span>
-              <input id="Lb" class="input" inputmode="decimal" autocomplete="off" placeholder="0"></label>
-            <label class="field"><span class="field__label">Ширина біоплато, м</span>
-              <input id="Wb" class="input" inputmode="decimal" autocomplete="off" placeholder="0"></label>
+          <p class="bio-hint">Ширина від краю ставка, м × довжина сторони; ‹ › — інша сторона</p>
+          <div class="bio-rows">
+            <div id="bioRow1" class="collapse bio-row-box">
+              <div class="collapse__inner">
+                <div class="bio-row">
+                  <span class="bio-row__name">Bio-1</span>
+                  <input id="bioW1" class="input bio-row__w" inputmode="decimal" autocomplete="off" placeholder="ширина" aria-label="Bio-1: ширина від краю ставка, м">
+                  <span id="bioLen1" class="bio-row__len" aria-live="polite">× — м</span>
+                  <div class="bio-side">
+                    <button type="button" class="bio-side__btn" data-biomove="0" data-d="-1" aria-label="Bio-1: на іншу сторону проти годинникової стрілки">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg>
+                    </button>
+                    <button type="button" class="bio-side__btn" data-biomove="0" data-d="1" aria-label="Bio-1: на іншу сторону за годинниковою стрілкою">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>
+                    </button>
+                  </div>
+                  <span id="bioSideLabel1" class="vh" aria-live="polite"></span>
+                </div>
+              </div>
+            </div>
+            <div id="bioRow2" class="collapse bio-row-box">
+              <div class="collapse__inner">
+                <div class="bio-row">
+                  <span class="bio-row__name">Bio-2</span>
+                  <input id="bioW2" class="input bio-row__w" inputmode="decimal" autocomplete="off" placeholder="ширина" aria-label="Bio-2: ширина від краю ставка, м">
+                  <span id="bioLen2" class="bio-row__len" aria-live="polite">× — м</span>
+                  <div class="bio-side">
+                    <button type="button" class="bio-side__btn" data-biomove="1" data-d="-1" aria-label="Bio-2: на іншу сторону проти годинникової стрілки">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg>
+                    </button>
+                    <button type="button" class="bio-side__btn" data-biomove="1" data-d="1" aria-label="Bio-2: на іншу сторону за годинниковою стрілкою">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>
+                    </button>
+                  </div>
+                  <span id="bioSideLabel2" class="vh" aria-live="polite"></span>
+                </div>
+              </div>
+            </div>
+            <div id="bioRow3" class="collapse bio-row-box">
+              <div class="collapse__inner">
+                <div class="bio-row">
+                  <span class="bio-row__name">Bio-3</span>
+                  <input id="bioW3" class="input bio-row__w" inputmode="decimal" autocomplete="off" placeholder="ширина" aria-label="Bio-3: ширина від краю ставка, м">
+                  <span id="bioLen3" class="bio-row__len" aria-live="polite">× — м</span>
+                  <div class="bio-side">
+                    <button type="button" class="bio-side__btn" data-biomove="2" data-d="-1" aria-label="Bio-3: на іншу сторону проти годинникової стрілки">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg>
+                    </button>
+                    <button type="button" class="bio-side__btn" data-biomove="2" data-d="1" aria-label="Bio-3: на іншу сторону за годинниковою стрілкою">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>
+                    </button>
+                  </div>
+                  <span id="bioSideLabel3" class="vh" aria-live="polite"></span>
+                </div>
+              </div>
+            </div>
+            <div id="bioRow4" class="collapse bio-row-box">
+              <div class="collapse__inner">
+                <div class="bio-row">
+                  <span class="bio-row__name">Bio-4</span>
+                  <input id="bioW4" class="input bio-row__w" inputmode="decimal" autocomplete="off" placeholder="ширина" aria-label="Bio-4: ширина від краю ставка, м">
+                  <span id="bioLen4" class="bio-row__len" aria-live="polite">× — м</span>
+                  <div class="bio-side">
+                    <button type="button" class="bio-side__btn" data-biomove="3" data-d="-1" aria-label="Bio-4: на іншу сторону проти годинникової стрілки">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg>
+                    </button>
+                    <button type="button" class="bio-side__btn" data-biomove="3" data-d="1" aria-label="Bio-4: на іншу сторону за годинниковою стрілкою">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>
+                    </button>
+                  </div>
+                  <span id="bioSideLabel4" class="vh" aria-live="polite"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id="bioSumBox" class="collapse">
+            <div class="collapse__inner"><p id="bioSum" class="bio-sum" aria-live="polite"></p></div>
           </div>
         </div>
       </div>
@@ -314,16 +390,16 @@
           <span class="switch__text">Сходинки (Про-режим)</span>
         </label>
       </div>
-      <!-- Укіс стінок (v0.7.0, D61): задається один раз і діє в усіх кошторисах, «Новий кошторис» його не скидає.
-           Підйоми між сходинками — завжди вертикальні (D63) -->
+      <!-- Укіс стінок (D61; v0.7.1 — у градусах): 90° — вертикальні стінки, від 30° до 90°. Задається один раз
+           і діє в усіх кошторисах, «Новий кошторис» його не скидає. Підйоми між сходинками — завжди вертикальні (D63) -->
       <div class="svc-row">
-        <label for="slopeM" class="svc-row__label">Укіс стінок ставка</label>
-        <div class="slope">
-          <span class="slope__pre">1 :</span>
-          <input id="slopeM" class="input slope__input" type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-describedby="slopeHint">
-          <output id="slopeDeg" class="slope__deg">90°</output>
+        <div class="counter">
+          <label for="slopeDeg" class="counter__label">Укіс стінок ставка, °</label>
+          <button type="button" id="slopeMinus" class="counter__btn" data-slope="-1" aria-label="Мінус 1°">−</button>
+          <input id="slopeDeg" class="counter__value counter__input" type="text" inputmode="decimal" autocomplete="off" aria-describedby="slopeHint">
+          <button type="button" id="slopePlus" class="counter__btn" data-slope="1" aria-label="Плюс 1°">+</button>
         </div>
-        <p id="slopeHint" class="slope__hint">m — метрів по горизонталі на 1 м глибини; 0 — вертикальні стінки. Діє в усіх кошторисах, доки не зміните. Підйоми між сходинками — завжди 90°.</p>
+        <p id="slopeHint" class="slope__hint">90° — вертикальні стінки (максимум), найменше — 30°. Зараз: <span id="slopeRatio">1 : 0</span>. Діє в усіх кошторисах, доки не зміните. Підйоми між сходинками — завжди 90°.</p>
       </div>
       <!-- Біоплато на схемі (D56): «Разом» — впритул до ставка, одне дзеркало; на розрахунок не впливає -->
       <div class="svc-row">
@@ -341,21 +417,30 @@
           <button type="button" class="seg__btn" data-font="1.3">Найбільший</button>
         </div>
       </div>
+      <!-- Тема (v0.7.1): «Система» — кольори Telegram (поза ним — теми телефона); за замовчуванням — темна -->
+      <div class="svc-row">
+        <span id="themeLabel" class="svc-row__label">Тема інтерфейсу</span>
+        <div class="seg" role="group" aria-labelledby="themeLabel">
+          <button type="button" class="seg__btn" data-theme-opt="dark">Темна</button>
+          <button type="button" class="seg__btn" data-theme-opt="light">Світла</button>
+          <button type="button" class="seg__btn" data-theme-opt="system">Система</button>
+        </div>
+      </div>
       <button id="serviceDone" type="button" class="btn btn--primary">Готово</button>
     </div>
   </div>
 
   <!-- Порядок важливий: конфіг → дані → ядро → API → інтерфейс → запуск -->
-  <script src="js/config.js?v=11"></script>
-  <script src="../data/catalog.sample.js?v=11"></script>
-  <script src="../core/calc.js?v=11"></script>
-  <script src="../core/format.js?v=11"></script>
-  <script src="../core/pondgeo.js?v=11"></script>
-  <script src="../core/stairs.js?v=11"></script>
-  <script src="../core/slope.js?v=11"></script>
-  <script src="js/api.js?v=11"></script>
-  <script src="js/ui.js?v=11"></script>
-  <script src="js/sketch3d.js?v=11"></script>
-  <script src="js/app.js?v=11"></script>
+  <script src="js/config.js?v=12"></script>
+  <script src="../data/catalog.sample.js?v=12"></script>
+  <script src="../core/calc.js?v=12"></script>
+  <script src="../core/format.js?v=12"></script>
+  <script src="../core/pondgeo.js?v=12"></script>
+  <script src="../core/stairs.js?v=12"></script>
+  <script src="../core/slope.js?v=12"></script>
+  <script src="js/api.js?v=12"></script>
+  <script src="js/ui.js?v=12"></script>
+  <script src="js/sketch3d.js?v=12"></script>
+  <script src="js/app.js?v=12"></script>
 </body>
 </html>

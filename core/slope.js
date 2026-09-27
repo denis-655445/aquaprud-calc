@@ -20,6 +20,8 @@ var Slope = (function () {
 
   // Кут стінки до горизонту, °: 1 : m → atan(1/m); m = 0 — 90°
   function angleDeg(m) { return m > 0 ? Math.atan(1 / m) * 180 / Math.PI : 90; }
+  // Навпаки (v0.7.1: у службовій панелі вводять кут): α° → m = 1 / tg α; 90° — вертикальна стінка (m = 0)
+  function mFromDeg(deg) { return deg > 0 && deg < 90 ? 1 / Math.tan(deg * Math.PI / 180) : 0; }
 
   // «Глибина для плівки»: розгортка похилої стінки. Плівку кроять як для вертикальних стінок глибиною D_пл:
   // дно коротше на 2·m·D, а дві похилі стінки довші — по D·√(1+m²). m = 0 → D_пл = D (як до v0.7.0)
@@ -63,7 +65,8 @@ var Slope = (function () {
    * Поле глибин ставка.
    * o = { outline: [[x, y], …] — край ставка в плані, м; D — глибина; m — укіс;
    *       levels: [{ poly, holes, depth }] — сходинки в координатах плану (як у 3D, D49);
-   *       seam: { pts, depth } | null — шов з біоплато «Разом» (укіс від глибини біоплато; лише для схеми) }
+   *       seam: { lines: [[[x, y], …], …], depth } | null — шви з біоплато «Разом» (укіс від глибини біоплато; лише для схеми).
+ *             Старий формат { pts, depth } (одна ламана) теж приймається }
    * Повертає { levelAt(q), depthAt(q), segs, … } — q всередині краю.
    */
   function field(o) {
@@ -87,7 +90,7 @@ var Slope = (function () {
     var ccw = signedArea(outline) > 0, per = 0;
     outline.forEach(function (a, i) { var b = outline[(i + 1) % outline.length]; per += Math.hypot(b[0] - a[0], b[1] - a[1]); });
     var ds = per / SEG_N, eps = Math.max(0.02, 0.004 * size), tol = 1e-6 * Math.max(1, size);
-    var segs = [];
+    var segs = [], seamLines = !o.seam ? [] : o.seam.lines || (o.seam.pts ? [o.seam.pts] : []);
     outline.forEach(function (a, i) {
       var b = outline[(i + 1) % outline.length], len = Math.hypot(b[0] - a[0], b[1] - a[1]);
       if (len < tol) return;
@@ -100,7 +103,7 @@ var Slope = (function () {
         var p1 = [a[0] + (b[0] - a[0]) * (k + 1) / n, a[1] + (b[1] - a[1]) * (k + 1) / n];
         var mid = [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2];
         var h = levelAt([mid[0] + nx * eps, mid[1] + ny * eps]);
-        var base = o.seam && polylineDist(mid, o.seam.pts) < Math.max(eps / 4, 1e-3) ? Math.min(o.seam.depth, h) : 0;
+        var base = seamLines.some(function (l) { return polylineDist(mid, l) < Math.max(eps / 4, 1e-3); }) ? Math.min(o.seam.depth, h) : 0;
         if (cur && cur.h === h && cur.base === base) cur.b = p1;           // та сама ділянка — подовжуємо
         else { cur = { a: p0, b: p1, h: h, base: base, n: [nx, ny] }; segs.push(cur); }
       }
@@ -149,7 +152,7 @@ var Slope = (function () {
 
   /*
    * Профіль уздовж лінії p0 → p1 (розріз): { t — відстань від p0, м; z — глибина, м (0 — земля) }.
-   * extra = [{ poly, depth }] — інші котловани на лінії (біоплато), стінки вертикальні.
+   * extra = [{ poly, holes, depth }] — інші котловани на лінії (біоплато), стінки вертикальні.
    */
   function profile(f, p0, p1, extra, n) {
     n = n || 400;
@@ -157,7 +160,9 @@ var Slope = (function () {
     for (var k = 0; k <= n; k++) {
       var q = [p0[0] + (p1[0] - p0[0]) * k / n, p0[1] + (p1[1] - p0[1]) * k / n], z = 0;
       if (inside(q, f.outline)) z = f.depthAt(q);
-      else (extra || []).forEach(function (e) { if (inside(q, e.poly)) z = Math.max(z, e.depth); });
+      else (extra || []).forEach(function (e) {
+        if (inside(q, e.poly) && !(e.holes || []).some(function (h) { return inside(q, h); })) z = Math.max(z, e.depth);
+      });
       out.push({ t: len * k / n, z: z });
     }
     return out;
@@ -192,7 +197,7 @@ var Slope = (function () {
     return out;
   }
 
-  return { angleDeg: angleDeg, filmDepth: filmDepth, field: field, correction: correction, profile: profile,
+  return { angleDeg: angleDeg, mFromDeg: mFromDeg, filmDepth: filmDepth, field: field, correction: correction, profile: profile,
            toeLines: toeLines, inside: inside, GRID_N: GRID_N };
 })();
 

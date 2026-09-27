@@ -28,8 +28,7 @@ var Sketch3D = (function () {
   var STEP_PX = 1.5;            // крок перевірки видимості вздовж ребра, px
   var STEP_PX_FAST = 3;         // під час анімації повороту — грубіше, щоб кадри встигали на телефоні
   var LABEL_PX = 13;            // розмір шрифту підписів (множиться на --fs), як .s3-label у CSS
-  var LABEL_GAP = 5;            // від краю ділянки землі до підпису «біоплато», px
-  var BIO_TEXT = 'біоплато';
+  var LABEL_GAP = 5;            // від краю ділянки землі до підпису «Bio-N», px
   var LABEL_SLIDE = [0, 0.4, -0.4, 0.8, -0.8]; // зсув підпису вздовж сторони, частки півдовжини: спершу середина
   var uid = 0;                  // унікальні id обрізок: на сторінці може бути кілька схем
   var cache = { key: null, fit: null }; // масштаб рахуємо один раз, а не на кожен кадр повороту
@@ -45,11 +44,13 @@ var Sketch3D = (function () {
    * Точка прив'язки — середина краю ділянки землі з цього боку (земля ширша за котлован на margin, pondgeo.js);
    * прямокутник підпису стоїть назовні від цього краю, впритул із зазором LABEL_GAP, і не перетинає його.
    * slide — зсув уздовж сторони в частках її півдовжини (0 — середина; −1…1).
+   * v0.7.1: Bio кілька — підпис «Bio-N» у кожного (bio — елемент scene.bios; без нього — перше Bio).
    * Повертає { x, y } — точку прив'язки в екранних координатах креслення, м;
    * box — прямокутник тексту відносно неї, px; cx, base — центр і базова лінія тексту, px.
    */
-  function bioLabel(scene, cam, fontPx, slide) {
-    var bio = scene.bio;
+  function bioText(bio) { return 'Bio-' + bio.n; }
+  function bioLabel(scene, cam, fontPx, slide, bio) {
+    bio = bio || (scene.bios || [])[0];
     if (!bio || !bio.outer) return null;
     var o = bio.outer, n = o.n, t = o.t, u = (slide || 0) * o.half;
     // Відстань від сторони біоплато до краю землі вздовж нормалі назовні
@@ -62,11 +63,11 @@ var Sketch3D = (function () {
     var len = Math.hypot(ts[0], ts[1]), nu = [-ts[1] / len, ts[0] / len];
     if (nu[0] * ns[0] + nu[1] * ns[1] < 0) nu = [-nu[0], -nu[1]];
     // Розмір тексту: ширина ~0,62 висоти шрифту на літеру
-    var w = 0.62 * fontPx * BIO_TEXT.length + 6, asc = 0.8 * fontPx, desc = 0.25 * fontPx, hh = asc + desc;
+    var w = 0.62 * fontPx * bioText(bio).length + 6, asc = 0.8 * fontPx, desc = 0.25 * fontPx, hh = asc + desc;
     // Центр тексту — на нормалі, на такій відстані, щоб прямокутник лише торкався краю (+ зазор)
     var dist = LABEL_GAP + Math.abs(nu[0]) * w / 2 + Math.abs(nu[1]) * hh / 2;
     var cx = nu[0] * dist, cy = nu[1] * dist;
-    return { x: a[0], y: a[1], cx: cx, base: cy - hh / 2 + asc,
+    return { x: a[0], y: a[1], cx: cx, base: cy - hh / 2 + asc, text: bioText(bio),
              box: { x0: cx - w / 2, x1: cx + w / 2, y0: cy - hh / 2, y1: cy + hh / 2 } };
   }
 
@@ -91,17 +92,19 @@ var Sketch3D = (function () {
         var b = hull[(i + 1) % hull.length], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / (span / 80)));
         for (var k = 0; k < n; k++) pts.push({ v: vi, mx: a[0] + (b[0] - a[0]) * k / n, my: a[1] + (b[1] - a[1]) * k / n, dx: 0, dy: 0 });
       });
-      // Варіанти місця підпису (LABEL_SLIDE); cand — номер варіанта, для ракурсу вибирається один (place)
-      LABEL_SLIDE.forEach(function (sl, ci) {
-        var lab = bioLabel(scene, cam, fontPx, sl);
-        if (!lab) return;
-        // Верхній і нижній край підпису — по 5 точок: кнопка може стати між кутами
-        var b = lab.box;
-        for (var k = 0; k <= 4; k++) {
-          var x = b.x0 + (b.x1 - b.x0) * k / 4;
-          pts.push({ v: vi, cand: ci, mx: lab.x - c0[0], my: lab.y - c0[1], dx: x, dy: b.y0 });
-          pts.push({ v: vi, cand: ci, mx: lab.x - c0[0], my: lab.y - c0[1], dx: x, dy: b.y1 });
-        }
+      // Варіанти місця кожного підпису «Bio-N» (LABEL_SLIDE); lab — номер підпису, cand — варіанта (вибір — place)
+      (scene.bios || []).forEach(function (bio, li) {
+        LABEL_SLIDE.forEach(function (sl, ci) {
+          var lab = bioLabel(scene, cam, fontPx, sl, bio);
+          if (!lab) return;
+          // Верхній і нижній край підпису — по 5 точок: кнопка може стати між кутами
+          var b = lab.box;
+          for (var k = 0; k <= 4; k++) {
+            var x = b.x0 + (b.x1 - b.x0) * k / 4;
+            pts.push({ v: vi, lab: li, cand: ci, mx: lab.x - c0[0], my: lab.y - c0[1], dx: x, dy: b.y0 });
+            pts.push({ v: vi, lab: li, cand: ci, mx: lab.x - c0[0], my: lab.y - c0[1], dx: x, dy: b.y1 });
+          }
+        });
       });
     });
     var minX = Infinity, maxX = -Infinity, minY = Infinity;
@@ -128,24 +131,35 @@ var Sketch3D = (function () {
       return { t: t, h: h };
     }
     // Точки кожного ракурсу окремо: зсув і висота рахуються для ракурсу, а не для суми всіх 4 (менше порожнечі).
-    // base — креслення; cands[ci] — підпис у варіанті ci (порожньо, якщо біоплато немає)
+    // base — креслення; labs[li][ci] — підпис li у варіанті ci (порожньо, якщо біоплато немає)
+    var nLabs = (scene.bios || []).length;
     var byView = views.map(function (az, vi) {
       var mine = pts.filter(function (p) { return p.v === vi; });
       var base = mine.filter(function (p) { return p.cand === undefined; });
-      var cands = LABEL_SLIDE.map(function (sl, ci) { return mine.filter(function (p) { return p.cand === ci; }); })
-        .filter(function (c) { return c.length; });
-      return { base: base, cands: cands.length ? cands : [[]] };
+      var labs = [];
+      for (var li = 0; li < nLabs; li++) {
+        labs.push(LABEL_SLIDE.map(function (sl, ci) { return mine.filter(function (p) { return p.lab === li && p.cand === ci; }); })
+          .filter(function (c) { return c.length; }));
+      }
+      return { base: base, labs: labs };
     });
-    // Ракурс: найнижчий блок серед варіантів підпису; за рівної висоти — ближчий до середини сторони (менший ci)
+    // Ракурс: для кожного підпису по черзі — варіант з найнижчим блоком; за рівної висоти — ближчий до середини (менший ci)
     function viewPlace(bv, s, offX) {
-      var best = null;
-      bv.cands.forEach(function (c, ci) {
-        // Зсунутий підпис не має виходити за бокові краї блока
-        if (c.some(function (p) { var X = offX + s * p.mx + p.dx; return X < PAD || X > box.w - PAD; })) return;
-        var v = vertical(bv.base.concat(c), s, offX);
-        if (!best || v.h < best.h - 0.5) best = { t: v.t, h: v.h, k: LABEL_SLIDE[ci] };
+      var acc = bv.base, ks = [];
+      bv.labs.forEach(function (cands) {
+        var best = null;
+        cands.forEach(function (c, ci) {
+          // Зсунутий підпис не має виходити за бокові краї блока
+          if (c.some(function (p) { var X = offX + s * p.mx + p.dx; return X < PAD || X > box.w - PAD; })) return;
+          var v = vertical(acc.concat(c), s, offX);
+          if (!best || v.h < best.h - 0.5) best = { h: v.h, c: c, k: LABEL_SLIDE[ci] };
+        });
+        if (!best) best = { c: cands[0] || [], k: 0 };
+        acc = acc.concat(best.c);
+        ks.push(best.k);
       });
-      return best;
+      var v = vertical(acc, s, offX);
+      return { t: v.t, h: v.h, k: ks };
     }
     function place(s) {
       var xl = Infinity, xr = -Infinity;
@@ -165,9 +179,9 @@ var Sketch3D = (function () {
       var mid = (lo + hi) / 2, r = place(mid);
       if (r && r.h <= opts.box.hMax) lo = mid; else hi = mid;
     }
-    var best = place(lo) || { s: lo, offX: box.w / 2, h: hMin, per: views.map(function () { return { t: PAD, h: hMin, k: 0 }; }) };
+    var best = place(lo) || { s: lo, offX: box.w / 2, h: hMin, per: views.map(function () { return { t: PAD, h: hMin, k: [] }; }) };
     // Нижчий ракурс — по центру блока: зверху й знизу однаковий запас (межі кнопок не порушуються — лише зсув униз).
-    // k — вибраний зсув підпису «біоплато» для ракурсу
+    // k — вибрані зсуви підписів «Bio-N» для ракурсу (масив за порядком scene.bios)
     var fitViews = views.map(function (az, vi) {
       var v = best.per[vi];
       return { az: az, t: v.t + (best.h - v.h) / 2, h: best.h, k: v.k };
@@ -178,19 +192,26 @@ var Sketch3D = (function () {
   // t і h для довільного кута: лінійно між двома сусідніми ракурсами (v0.6.3: h однакова — змінюється лише зсув t)
   function viewFit(fit, azimuth) {
     var vs = (fit.views || []).slice().sort(function (p, q) { return p.az - q.az; });
-    if (!vs.length) return { t: fit.t, h: fit.h, k: 0 };
+    if (!vs.length) return { t: fit.t, h: fit.h, k: [] };
     var a = ((azimuth % 360) + 360) % 360;
-    function lerp(x, y, e) { return (x || 0) + ((y || 0) - (x || 0)) * e; }
+    function lerp(x, y, e) {
+      if (Array.isArray(x) || Array.isArray(y)) {            // зсуви кількох підписів
+        var X = x || [], Y = y || [], out = [];
+        for (var i = 0; i < Math.max(X.length, Y.length); i++) out.push(lerp(X[i], Y[i], e));
+        return out;
+      }
+      return (x || 0) + ((y || 0) - (x || 0)) * e;
+    }
     for (var i = 0; i < vs.length; i++) {
       var p = vs[i], q = vs[(i + 1) % vs.length];
       var span = ((q.az - p.az) % 360 + 360) % 360 || 360, d = ((a - p.az) % 360 + 360) % 360;
       if (d <= span) { var e = d / span; return { t: lerp(p.t, q.t, e), h: lerp(p.h, q.h, e), k: lerp(p.k, q.k, e) }; }
     }
-    return { t: vs[0].t, h: vs[0].h, k: vs[0].k || 0 };
+    return { t: vs[0].t, h: vs[0].h, k: vs[0].k || [] };
   }
 
   /*
-   * opts = { shape, L, W, D, bio: { L, W, depth, side, joined } | null, levels: [{ poly, holes, depth }], azimuth, fast,
+   * opts = { shape, L, W, D, bio: { plates: [{ n, side, w }], depth, joined } | null, levels: [{ poly, holes, depth }], azimuth, fast,
    *          box: { w, hMax } — ширина блока і найбільша висота, px,
    *          avoid: { top: [{ x0, x1, y1 }], bottom: [{ x0, x1, h }] } — кнопки поверх схеми, px,
    *          fs — множник розміру тексту }
@@ -241,11 +262,13 @@ var Sketch3D = (function () {
       var rim = r.fills.filter(function (f) { return f.pit === pit.id && f.kind === 'rim'; })[0];
       var floor = r.fills.filter(function (f) { return f.pit === pit.id && f.kind === 'floor'; })[0];
       var clipId = 's3clip-' + uid + '-' + pit.id;
+      // Дірка («острів» кільця біоплато з 4 Bio) — правило evenodd: заливка й обрізка її обходять
+      var ringD = function (f) { return pathD(mapPts(f.pts), true) + (f.holes || []).map(function (h) { return pathD(mapPts(h), true); }).join(''); };
       defs.children.push({ tag: 'clipPath', attrs: { id: clipId },
-        children: [{ tag: 'path', attrs: { d: pathD(mapPts(rim.pts), true) } }] });
-      items.push({ tag: 'path', attrs: { d: pathD(mapPts(rim.pts), true), 'class': 's3-wall' } });
+        children: [{ tag: 'path', attrs: { d: ringD(rim), 'clip-rule': 'evenodd' } }] });
+      items.push({ tag: 'path', attrs: { d: ringD(rim), 'fill-rule': 'evenodd', 'class': 's3-wall' } });
       if (floor) {
-        items.push({ tag: 'path', attrs: { d: pathD(mapPts(floor.pts), true), 'class': 's3-floor', 'clip-path': 'url(#' + clipId + ')' } });
+        items.push({ tag: 'path', attrs: { d: ringD(floor), 'fill-rule': 'evenodd', 'class': 's3-floor', 'clip-path': 'url(#' + clipId + ')' } });
       }
       // Сходинки: від глибокої до мілкої (порядок уже в render), кільце — з діркою
       r.fills.filter(function (f) { return f.pit === pit.id && f.kind === 'level'; }).forEach(function (f) {
@@ -263,12 +286,13 @@ var Sketch3D = (function () {
       items.push({ tag: 'path', attrs: { d: pathD(mapPts(l.pts), false), 'class': 's3-line' + (l.kind === 'rim' ? ' s3-line--rim' : l.kind === 'step' ? ' s3-line--step' : '') } });
     });
 
-    // Підпис «біоплато»: біля середини зовнішньої сторони біоплато, за краєм землі (див. bioLabel)
-    var lab = bioLabel(scene, cam, LABEL_PX * (opts.fs || 1), vf.k);
-    if (lab) {
+    // Підписи «Bio-N»: біля середини зовнішньої сторони кожного Bio, за краєм землі (див. bioLabel)
+    (scene.bios || []).forEach(function (bio, li) {
+      var lab = bioLabel(scene, cam, LABEL_PX * (opts.fs || 1), (vf.k || [])[li] || 0, bio);
+      if (!lab) return;
       var a = toSvg([lab.x, lab.y]);
-      items.push({ tag: 'text', attrs: { x: (a[0] + lab.cx).toFixed(1), y: (a[1] + lab.base).toFixed(1), 'text-anchor': 'middle', 'class': 'sk-label s3-label' }, text: BIO_TEXT });
-    }
+      items.push({ tag: 'text', attrs: { x: (a[0] + lab.cx).toFixed(1), y: (a[1] + lab.base).toFixed(1), 'text-anchor': 'middle', 'class': 'sk-label s3-label' }, text: lab.text });
+    });
 
     var h = Math.round(vf.h);
     return { viewBox: '0 0 ' + Math.round(box.w) + ' ' + h, height: h, items: items };

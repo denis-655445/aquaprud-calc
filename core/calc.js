@@ -127,6 +127,39 @@ var Calc = (function () {
     return num(inp.L) > 0 && num(inp.W) > 0 && num(inp.D) > 0;
   }
 
+  /*
+   * Біоплато (v0.7.1). inp.bio — перемикач; inp.bios — [{ side, w }] у порядку номерів (Bio-1 … Bio-4).
+   * side — 'right' | 'bottom' | 'left' | 'top'; довжина = сторона габариту ставка (праворуч / ліворуч — W, згори / знизу — L).
+   * Ділянки без ширини (порожнє поле) не враховуються. Стик — лише між суміжними сторонами (не навпроти):
+   * площа w₁·w₂; для плівки він приєднується до Bio з меншим номером (filmLen = len + ширина сусіда).
+   */
+  var BIO_SIDES = ['right', 'bottom', 'left', 'top'];
+  function bioLayout(inp, L, W) {
+    var plates = [], joints = [], area = 0, jointArea = 0;
+    if (!inp || !inp.bio || !Array.isArray(inp.bios)) return { plates: plates, joints: joints, area: 0, jointArea: 0 };
+    var used = {};
+    inp.bios.forEach(function (b, i) {
+      if (!b || BIO_SIDES.indexOf(b.side) === -1 || used[b.side]) return;   // одна сторона — одне Bio
+      var w = num(b.w), len = (b.side === 'right' || b.side === 'left') ? W : L;
+      if (!(w > 0) || !(len > 0)) return;
+      used[b.side] = true;
+      plates.push({ n: i + 1, side: b.side, len: len, w: w, area: len * w, filmLen: len });
+    });
+    plates.forEach(function (p) { area += p.area; });
+    // Суміжні сторони — сусіди в циклі праворуч → знизу → ліворуч → зверху
+    for (var i = 0; i < plates.length; i++) {
+      for (var j = i + 1; j < plates.length; j++) {
+        var a = plates[i], b = plates[j], d = Math.abs(BIO_SIDES.indexOf(a.side) - BIO_SIDES.indexOf(b.side));
+        if (d !== 1 && d !== 3) continue;
+        var ja = a.w * b.w, lo = a.n < b.n ? a : b, hi = lo === a ? b : a;
+        joints.push({ a: lo.n, b: hi.n, sides: [lo.side, hi.side], area: ja });
+        lo.filmLen += hi.w;
+        jointArea += ja;
+      }
+    }
+    return { plates: plates, joints: joints, area: area + jointArea, jointArea: jointArea };
+  }
+
   // Усі геометричні та гідравлічні метрики ставка (project_status.md §6.2)
   function computeMetrics(inp, s) {
     var L = num(inp.L), W = num(inp.W), D = num(inp.D);
@@ -161,18 +194,21 @@ var Calc = (function () {
     // C рахується на контурі схеми; S / area — перехід до площі з розрахунку (овал, нестандартна форма)
     var V = Math.max(0, Sdeep * D + Vsteps - (sl && sl.area > 0 ? sl.C * S / sl.area : 0));
 
-    // Біоплато рахуємо, лише якщо увімкнено і задано обидва розміри
+    // Біоплато (v0.7.1): 1–4 ділянки Bio-N, кожна — на всю довжину своєї сторони ставка (габарит L або W),
+    // змінна лише ширина (від краю ставка). Суміжні Bio додають «стик» у куті: w₁ × w₂ (bioLayout)
     var bioD = num(s.bio_depth_m);
-    var Lb = num(inp.Lb), Wb = num(inp.Wb);
-    var hasBio = !!inp.bio && Lb > 0 && Wb > 0;
-    var Vb = hasBio ? Lb * Wb * bioD : 0;
+    var bl = bioLayout(inp, L, W);
+    var hasBio = bl.plates.length > 0;
+    var Vb = hasBio ? bl.area * bioD : 0;
     var Vtotal = V + Vb;
 
     // Плівку кроять прямокутником: розмір + 2 глибини + запас на край з кожного боку.
     // З укосом замість D — розгортка стінки D·(√(1+m²) − m) (дно коротше, стінки довші); сходинки плівку не змінюють (D35)
     var Sl = getSlope(), Df = Sl && sl ? Sl.filmDepth(D, slopeM) : D;
     var filmArea = (L + 2 * Df + 2 * margin) * (W + 2 * Df + 2 * margin);
-    var bioFilmArea = hasBio ? (Lb + 2 * bioD + 2 * margin) * (Wb + 2 * bioD + 2 * margin) : 0;
+    // Біоплато — окремий шматок на кожне Bio; стик додається до Bio з меншим номером (його довжина + ширина сусіда)
+    var bioFilmArea = 0;
+    bl.plates.forEach(function (p) { bioFilmArea += (p.filmLen + 2 * bioD + 2 * margin) * (p.w + 2 * bioD + 2 * margin); });
 
     // Потрібний потік: обертів об'єму за годину × об'єм, м³ → л
     var turnover = inp.fish ? num(s.turnover_fish) : num(s.turnover_no_fish);
@@ -196,7 +232,8 @@ var Calc = (function () {
       steps: steps, Sdeep: Sdeep, Svis: Svis,
       // Укіс: m, поле глибин (для розрізів і лінії низу укосу на схемі), найбільша глибина з укосом
       slopeM: sl ? slopeM : 0, slope: sl, filmDepth: Df,
-      hasBio: hasBio, Lb: Lb, Wb: Wb,
+      // bioPlates — [{ n, side, len, w, area, filmLen }]; bioJoints — стики [{ a, b, area }]; bioArea — разом зі стиками
+      hasBio: hasBio, bioPlates: bl.plates, bioJoints: bl.joints, bioJointArea: bl.jointArea, bioArea: bl.area,
       filmArea: filmArea, bioFilmArea: bioFilmArea, filmAreaTotal: filmArea + bioFilmArea,
       excavation: Vtotal * num(s.excavation_k, 1),
       Qreq: Qreq, Hreq: Hreq, lift: lift, distance: distance,
@@ -419,7 +456,8 @@ var Calc = (function () {
     isActive: isActive, findItem: findItem, activeItems: activeItems,
     isValidInputs: isValidInputs, computeMetrics: computeMetrics,
     pickByVolume: pickByVolume, pumpFlowAt: pumpFlowAt, recommendPump: recommendPump,
-    recommend: recommend, buildEstimate: buildEstimate, GROUPS: GROUPS, useStairs: useStairs, useSlope: useSlope
+    recommend: recommend, buildEstimate: buildEstimate, GROUPS: GROUPS, useStairs: useStairs, useSlope: useSlope,
+    bioLayout: bioLayout, BIO_SIDES: BIO_SIDES
   };
 })();
 

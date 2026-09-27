@@ -187,90 +187,174 @@ var PondGeo = (function () {
   }
 
   /*
-   * Біоплато біля ставка (v0.6.0): side — 'right' | 'bottom' | 'left' | 'top' (за годинниковою від правого).
-   * Біоплато «обертається» навколо ставка: довжина Lб завжди йде від ставка, ширина Wб — уздовж його сторони.
-   * Повертає [x, y, ширина, висота] у координатах плану ставка; проміжок — умовний: max(0,5 м; 0,06·L).
+   * Біоплато (v0.7.1): 1–4 ділянки Bio-N, кожна — на всю довжину своєї сторони габариту ставка (L або W),
+   * змінна лише ширина w (від краю ставка). Суміжні Bio (не навпроти) з'єднує стик у куті w₁ × w₂.
+   * plates = [{ n, side, w }] — сторони різні, w > 0; side — 'right' | 'bottom' | 'left' | 'top'.
+   * joined — «Разом» (впритул до ставка, одне дзеркало, D56); інакше «Окремо» — з проміжком gap від габариту.
+   * Повертає (координати плану, контури — за годинниковою на екрані):
+   *   rects   — [{ n, side, r: [x, y, ширина, висота] }] — прямокутник кожного Bio (для підписів і розрізів);
+   *   corners — [[x, y, ширина, висота]] — стики;
+   *   «Окремо»: pits  — [{ outline, holes }] — котловани біоплато: суміжні Bio зі стиком — один (Г- / П-подібний), 4 Bio — кільце;
+   *   «Разом»:  union — спільний контур дзеркала; zones — [{ poly, holes }] мілкі зони поза ставком;
+   *             seams — ламані шва «біоплато | ставок» по стінці ставка.
+   *   На кривій стінці (овал, нестандартна) «Разом» заповнює чверті габариту біля Bio: між стінкою і Bio немає землі
+   *   (лише вигляд — на розрахунок не впливає: площа = довжина × ширина, п. 2 рішень v0.7.1).
    */
   var BIO_SIDES = ['right', 'bottom', 'left', 'top'];
-  function bioRect(L, W, bio, side) {
-    var gap = Math.max(0.5, 0.06 * L), bl = bio.L, bw = bio.W;
-    if (side === 'bottom') return [(L - bw) / 2, W + gap, bw, bl];
-    if (side === 'left') return [-gap - bl, (W - bw) / 2, bl, bw];
-    if (side === 'top') return [(L - bw) / 2, -gap - bl, bw, bl];
-    return [L + gap, (W - bw) / 2, bl, bw];                       // праворуч — як до v0.6.0
-  }
+  // Обхід за годинниковою на екрані (y — вниз): згори → праворуч → знизу → ліворуч
+  var CW_SIDES = ['top', 'right', 'bottom', 'left'];
+  function bioGap(L) { return Math.max(0.5, 0.06 * L); }
+  function horiz(side) { return side === 'top' || side === 'bottom'; }
 
-  /*
-   * Біоплато «Разом» (v0.6.1, D56): впритул до ставка, одне дзеркало. Лише для схеми — розрахунки ті самі.
-   * Рахуємо в осях сторони: u — від центру ставка назовні (до біоплато), v — уздовж сторони.
-   *   E — відстань від центру до сторони; R — прямокутник біоплато: v ∈ [−Wб/2; Wб/2], u ∈ [u_in; E + Lб].
-   *   На кривій стінці (овал, заокруглені кути) R заходить у ставок на c, поки його кути не торкнуться стінки
-   *   (c ≤ 0,25·E) — тоді шов суцільний, а не точка дотику. Прямокутний ставок: c = 0.
-   * Повертає (координати плану, контури — за годинниковою на екрані):
-   *   rect  — [x, y, ширина, висота] прямокутника R;
-   *   union — спільний контур дзеркала (ставок ∪ R);
-   *   zone  — ділянка біоплато поза ставком (R \ ставок) — мілка зона;
-   *   seam  — шов «біоплато | ставок» (ламана по стінці ставка).
-   */
-  var BIO_JOIN_MAX_K = 0.25;
-  function bioJoin(shape, L, W, bio, side) {
-    var pond = outline(shape, L, W), C = [L / 2, W / 2];
-    // n — назовні від ставка до біоплато, t — уздовж сторони
-    var n = side === 'bottom' ? [0, 1] : side === 'left' ? [-1, 0] : side === 'top' ? [0, -1] : [1, 0];
-    var t = [-n[1], n[0]];
-    function toUV(p) { var d = [p[0] - C[0], p[1] - C[1]]; return [d[0] * n[0] + d[1] * n[1], d[0] * t[0] + d[1] * t[1]]; }
-    function toXY(q) { return [C[0] + q[0] * n[0] + q[1] * t[0], C[1] + q[0] * n[1] + q[1] * t[1]]; }
-    var P = pond.map(toUV), eps = 1e-9 * Math.max(L, W, 1);
-    var E = -Infinity, H = 0;
-    P.forEach(function (q) { E = Math.max(E, q[0]); H = Math.max(H, Math.abs(q[1])); });
-    var w = bio.W / 2, uOut = E + bio.L;
+  function bioGeometry(shape, L, W, plates, joined) {
+    var g = joined ? 0 : bioGap(L), w = {}, out = { rects: [], corners: [] };
+    (plates || []).forEach(function (p) { if (p && p.w > 0 && BIO_SIDES.indexOf(p.side) !== -1 && !w[p.side]) w[p.side] = { w: p.w, n: p.n }; });
+    var has = function (sd) { return !!w[sd]; }, wd = function (sd) { return has(sd) ? w[sd].w : 0; };
+    if (!CW_SIDES.some(has)) return null;
+    // Лінії сторін: in — ближня до ставка (з проміжком), out — зовнішня; для відсутньої сторони обидві = габарит
+    var line = {
+      top:    { in: -g * has('top'), out: -g * has('top') - wd('top') },
+      right:  { in: L + g * has('right'), out: L + g * has('right') + wd('right') },
+      bottom: { in: W + g * has('bottom'), out: W + g * has('bottom') + wd('bottom') },
+      left:   { in: -g * has('left'), out: -g * has('left') - wd('left') }
+    };
+    // Точка на лінії сторони sd при координаті a вздовж неї; перетин ліній сусідніх сторін
+    function at(sd, k, a) { return horiz(sd) ? [a, line[sd][k]] : [line[sd][k], a]; }
+    function meet(s1, k1, s2, k2) { var hz = horiz(s1) ? s1 : s2, vt = hz === s1 ? s2 : s1, kh = hz === s1 ? k1 : k2, kv = hz === s1 ? k2 : k1; return [line[vt][kv], line[hz][kh]]; }
+    // Початок і кінець сторони за обходом (вільні кінці ланцюжка)
+    var START = { top: 0, right: 0, bottom: L, left: W }, END = { top: L, right: W, bottom: 0, left: 0 };
 
-    // Найдальша від центру точка стінки на прямій v = const
-    function uAt(v) {
-      var best = -Infinity;
-      P.forEach(function (a, i) {
-        var b = P[(i + 1) % P.length];
-        if ((a[1] - v) * (b[1] - v) > 0) return;                                   // ребро повз пряму
-        var u = Math.abs(b[1] - a[1]) < 1e-12 ? Math.max(a[0], b[0]) : a[0] + (b[0] - a[0]) * (v - a[1]) / (b[1] - a[1]);
-        best = Math.max(best, u);
-      });
-      return best;
-    }
-    // 1. Наскільки R заходить у ставок: до дотику кутів зі стінкою, але не більше 0,25·E
-    var cTouch = E - uAt(Math.min(w, H * (1 - 1e-9)));
-    var uIn = E - Math.max(0, Math.min(cTouch, BIO_JOIN_MAX_K * E));
-    // 2. Де стінка ставка перетинає внутрішній край R (u = u_in): межі шва по v
-    var vHi = -Infinity, vLo = Infinity;
-    P.forEach(function (a, i) {
-      var b = P[(i + 1) % P.length];
-      if (a[0] >= uIn - eps) { vHi = Math.max(vHi, a[1]); vLo = Math.min(vLo, a[1]); }
-      if ((a[0] - uIn) * (b[0] - uIn) < 0) {
-        var v = a[1] + (b[1] - a[1]) * (uIn - a[0]) / (b[0] - a[0]);
-        vHi = Math.max(vHi, v); vLo = Math.min(vLo, v);
+    // 1. Прямокутники Bio і стиків. «Окремо»: Bio подовжується на проміжок до сусіднього Bio (котлован суцільний)
+    CW_SIDES.forEach(function (sd, i) {
+      if (!has(sd)) return;
+      var prev = CW_SIDES[(i + 3) % 4], next = CW_SIDES[(i + 1) % 4];
+      var a0 = START[sd], a1 = END[sd], dir = a1 > a0 ? 1 : -1;
+      if (has(prev)) a0 -= dir * g;
+      if (has(next)) a1 += dir * g;
+      var p = at(sd, 'in', Math.min(a0, a1)), q = at(sd, 'out', Math.max(a0, a1));
+      out.rects.push({ n: w[sd].n, side: sd, r: [Math.min(p[0], q[0]), Math.min(p[1], q[1]), Math.abs(q[0] - p[0]), Math.abs(q[1] - p[1])] });
+      if (has(next)) {
+        var c0 = meet(sd, 'in', next, 'in'), c1 = meet(sd, 'out', next, 'out');
+        out.corners.push([Math.min(c0[0], c1[0]), Math.min(c0[1], c1[1]), Math.abs(c1[0] - c0[0]), Math.abs(c1[1] - c0[1])]);
       }
     });
-    vHi = Math.min(vHi, w); vLo = Math.max(vLo, -w);
-    // 3. Вершини ставка всередині R — це шов; решта лишається в спільному контурі
-    var inR = function (q) { return q[0] >= uIn - eps && q[1] >= vLo - eps && q[1] <= vHi + eps; };
-    var ang = function (q) { return Math.atan2(q[1], q[0]); };               // від центру: −π … π, сторона біоплато — біля 0
-    var kept = P.filter(function (q) { return !inR(q); }).sort(function (a, b) { return ang(a) - ang(b); });
-    var wall = P.filter(inR).sort(function (a, b) { return b[1] - a[1]; }); // шов від vHi до vLo
-    // Шлях по R назовні: вхід зі стінки → кути R → вихід на стінку («плечі», коли R ширше за ставок)
-    var path = [[uIn, vLo], [uIn, -w], [uOut, -w], [uOut, w], [uIn, w], [uIn, vHi]];
-    var cut = 0;
-    while (cut < kept.length && ang(kept[cut]) < 0) cut++;                   // місце вставки: кут переходить через 0
-    var union = dedupe(kept.slice(0, cut).concat(path, kept.slice(cut)), eps * 10);
-    var zone = dedupe(path.concat(wall), eps * 10);
-    var seam = dedupe([[uIn, vHi]].concat(wall, [[uIn, vLo]]), eps * 10, true);
-    // Назад у план; контури — за годинниковою на екрані, як outline()
-    function ring(r) { var xy = r.map(toXY); return signedArea(xy) < 0 ? xy.reverse() : xy; }
-    var box = bbox([[uIn, -w], [uOut, w]].map(toXY));
-    return { rect: [box[0], box[1], box[2] - box[0], box[3] - box[1]], union: ring(union), zone: ring(zone), seam: seam.map(toXY) };
+    out.rects.sort(function (x, y) { return x.n - y.n; });
+
+    // 2. Смуга біоплато: ланцюжки сусідніх Bio за обходом → многокутник; усі 4 — кільце (зовнішній контур + дірка)
+    function chains() {
+      if (CW_SIDES.every(has)) return null;
+      var start = CW_SIDES.indexOf(CW_SIDES.filter(function (sd) { return !has(sd); })[0]), list = [], cur = null;
+      for (var k = 1; k <= 4; k++) {
+        var sd = CW_SIDES[(start + k) % 4];
+        if (has(sd)) { if (!cur) { cur = []; list.push(cur); } cur.push(sd); } else cur = null;
+      }
+      return list;
+    }
+    var ch = chains();
+    var band = [];
+    if (!ch) {
+      var outer = [meet('top', 'out', 'right', 'out'), meet('right', 'out', 'bottom', 'out'), meet('bottom', 'out', 'left', 'out'), meet('left', 'out', 'top', 'out')];
+      var inner = [meet('top', 'in', 'right', 'in'), meet('right', 'in', 'bottom', 'in'), meet('bottom', 'in', 'left', 'in'), meet('left', 'in', 'top', 'in')];
+      band.push({ outline: cw(outer), holes: [cw(inner).reverse()] });
+    } else {
+      ch.forEach(function (c) {
+        var pts = [at(c[0], 'out', START[c[0]])];
+        for (var k = 0; k + 1 < c.length; k++) pts.push(meet(c[k], 'out', c[k + 1], 'out'));
+        pts.push(at(c[c.length - 1], 'out', END[c[c.length - 1]]), at(c[c.length - 1], 'in', END[c[c.length - 1]]));
+        for (var j = c.length - 2; j >= 0; j--) pts.push(meet(c[j], 'in', c[j + 1], 'in'));
+        pts.push(at(c[0], 'in', START[c[0]]));
+        band.push({ outline: cw(pts), holes: [] });
+      });
+    }
+    if (!joined) { out.pits = band; return out; }
+
+    // 3. «Разом»: спільний контур = ставок, у якого кожна чверть габариту біля Bio заповнена до зовнішньої лінії.
+    //    Верхівки сторін (середини) і чверті — за обходом; чверть між сторонами a і b «квадратна», якщо є Bio a або b
+    var pond = outline(shape, L, W), eps = 1e-9 * Math.max(L, W, 1);
+    var TIP = { top: [L / 2, 0], right: [L, W / 2], bottom: [L / 2, W], left: [0, W / 2] };
+    function tipU(sd) { return has(sd) ? at(sd, 'out', horiz(sd) ? L / 2 : W / 2) : TIP[sd]; }
+    // Точки стінки ставка строго всередині чверті (між верхівками a і b) — у порядку обходу контуру
+    function arc(a, b) {
+      var cx = L / 2, cy = W / 2, sx = (a === 'right' || b === 'right') ? 1 : -1, sy = (a === 'bottom' || b === 'bottom') ? 1 : -1;
+      var inQ = pond.map(function (q) {
+        return (q[0] - cx) * sx > eps && (q[1] - cy) * sy > eps;
+      });
+      var n = pond.length, first = -1;
+      for (var i = 0; i < n; i++) if (inQ[i] && !inQ[(i - 1 + n) % n]) { first = i; break; }
+      var res = [];
+      if (first < 0) return res;
+      for (var k = 0; k < n && inQ[(first + k) % n]; k++) res.push(pond[(first + k) % n]);
+      return res;
+    }
+    var union = [], U = [], P = [];              // U[i], P[i] — шлях контуру і стінки ставка в чверті i (від верхівки до верхівки)
+    CW_SIDES.forEach(function (a, i) {
+      var b = CW_SIDES[(i + 1) % 4], sq = has(a) || has(b);
+      var pondPath = [TIP[a]].concat(arc(a, b), [TIP[b]]);
+      var uPath = sq ? [tipU(a), meet(a, has(a) ? 'out' : 'in', b, has(b) ? 'out' : 'in'), tipU(b)] : pondPath;
+      U.push(uPath); P.push(pondPath);
+      union = union.concat(uPath.slice(0, -1));
+    });
+    union = cleanRing(union, eps * 10);
+    out.union = union;
+    // Мілкі зони: ділянки між контуром і стінкою ставка; розриваються на верхівках сторін без Bio (там вони торкаються)
+    out.zones = []; out.seams = [];
+    var onUnion = function (q) { return distToRing(q, union) < 1e-6 * Math.max(L, W, 1); };
+    function seamOf(path) {                    // частини стінки, що не лежать на спільному контурі
+      var lines = [], cur = null;
+      for (var i = 0; i + 1 < path.length; i++) {
+        var a = path[i], b = path[i + 1], mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+        if (onUnion(mid)) { cur = null; continue; }
+        if (!cur) { cur = [a]; lines.push(cur); }
+        cur.push(b);
+      }
+      return lines;
+    }
+    if (CW_SIDES.every(has)) {
+      var ring = cleanRing(pond.slice(), eps * 10);
+      out.zones.push({ poly: union, holes: [ring.slice().reverse()] });
+      out.seams.push(ring.concat([ring[0]]));
+      return out;
+    }
+    var s0 = CW_SIDES.indexOf(CW_SIDES.filter(function (sd) { return !has(sd); })[0]);
+    var runU = null, runP = null;
+    for (var k = 0; k < 4; k++) {
+      var qi = (s0 + k) % 4, bSide = CW_SIDES[(qi + 1) % 4];
+      if (!(has(CW_SIDES[qi]) || has(bSide))) continue;                // чверть без Bio — стінка = контур
+      if (!runU) { runU = []; runP = []; }
+      runU = runU.concat(runU.length ? U[qi].slice(1) : U[qi]);
+      runP = runP.concat(runP.length ? P[qi].slice(1) : P[qi]);
+      if (!has(bSide)) {                                                // верхівка без Bio — кінець зони
+        var poly = cleanRing(runU.concat(runP.slice(1, -1).reverse()), eps * 10);
+        if (poly.length > 2 && Math.abs(signedArea(poly)) > eps) out.zones.push({ poly: cw(poly), holes: [] });
+        seamOf(runP).forEach(function (l) { out.seams.push(l); });
+        runU = runP = null;
+      }
+    }
+    return out;
+  }
+
+  // Контур за годинниковою на екрані (як outline())
+  function cw(r) { return signedArea(r) < 0 ? r.slice().reverse() : r; }
+
+  // Прибирає збіги й точки на прямій між сусідами (зокрема «шпильки» — повернення назад по тій самій прямій)
+  function cleanRing(pts, tol) {
+    var r = dedupe(pts, tol), changed = true;
+    while (changed && r.length > 3) {
+      changed = false;
+      for (var i = 0; i < r.length && r.length > 3; i++) {
+        var a = r[(i - 1 + r.length) % r.length], b = r[i], c = r[(i + 1) % r.length];
+        var ab = [b[0] - a[0], b[1] - a[1]], bc = [c[0] - b[0], c[1] - b[1]];
+        var l = Math.hypot(ab[0], ab[1]) * Math.hypot(bc[0], bc[1]);
+        if (l < tol * tol || Math.abs(cross(ab, bc)) <= 1e-9 * l) { r.splice(i, 1); changed = true; i--; }
+      }
+      r = dedupe(r, tol);
+    }
+    return r;
   }
 
   /*
-   * Зовнішня сторона біоплато (v0.6.3, D59) — найдальша від ставка: біля її середини пишемо «біоплато» в 3D.
-   * r — [x, y, ширина, висота] прямокутника біоплато. Повертає середину сторони mid, нормаль назовні n,
+   * Зовнішня сторона Bio (D59) — найдальша від ставка: біля її середини пишемо «Bio-N» у 3D.
+   * r — [x, y, ширина, висота] прямокутника Bio. Повертає середину сторони mid, нормаль назовні n,
    * напрямок уздовж сторони t і половину її довжини half (координати плану, м).
    */
   function bioOuter(r, side) {
@@ -292,46 +376,43 @@ var PondGeo = (function () {
   }
 
   /*
-   * p = { shape, L, W, D, bio: { L, W, depth, side } | null, levels: [{ poly, holes, depth }] | undefined }
-   * Котлован (pit): { id, outline, depth, levels } — levels: сходинки { poly, holes, depth, box } у координатах плану
+   * p = { shape, L, W, D, bio: { plates: [{ n, side, w }], depth, joined } | null, levels: [{ poly, holes, depth }] | undefined }
+   * Котлован (pit): { id, outline, holes, depth, levels } — levels: сходинки { poly, holes, depth, box } у координатах плану;
+   * holes — «острів» землі всередині котлована (кільце біоплато «Окремо» з 4 Bio)
    */
   function buildScene(p) {
     var pondOutline = outline(p.shape, p.L, p.W);
-    var pond = { id: 'pond', outline: pondOutline, depth: p.D, levels: [] };
+    var pond = { id: 'pond', outline: pondOutline, holes: [], depth: p.D, levels: [] };
     var tol = 0.003 * Math.max(p.L, p.W);                     // 3 мм на 1 м розміру: на схемі непомітно
     (p.levels || []).forEach(function (lv) {
       if (!(lv.depth > 0 && lv.depth < p.D) || !lv.poly || lv.poly.length < 3) return;
       var poly = prepLevelRing(lv.poly, pondOutline, tol);     // стінка для сходинок — контур самого ставка
       pond.levels.push({ poly: poly, holes: (lv.holes || []).map(function (h) { return simplifyRing(h, tol); }), depth: lv.depth, box: bbox(poly) });
     });
-    var pits = [pond], bioZone = null;
-    if (p.bio && p.bio.L > 0 && p.bio.W > 0) {
+    var pits = [pond], bios = [];
+    var bg = p.bio ? bioGeometry(p.shape, p.L, p.W, p.bio.plates, !!p.bio.joined) : null;
+    if (bg) {
       var bd = Math.max(0, p.bio.depth || 0);
       if (p.bio.joined && bd > 0) {
-        // «Разом» (D56): один котлован зі спільним контуром; біоплато — мілка ділянка, як рівень сходинки.
+        // «Разом» (D56): один котлован зі спільним контуром; біоплато — мілкі ділянки, як рівні сходинок.
         // Шов лежить на стінці ставка — там підйом продовжує стінку, вертикального ребра немає (levelGeometry)
-        var j = bioJoin(p.shape, p.L, p.W, p.bio, p.bio.side);
-        pond.outline = j.union;
+        pond.outline = bg.union;
         pond.seamWall = pondOutline;
-        // floorOutline — де справді найглибше дно (заливка «дна» лише там, а не під біоплато)
         if (bd < p.D) {
-          pond.levels.push({ poly: j.zone, holes: [], depth: bd, box: bbox(j.zone), bio: true });
-          pond.floorOutline = pondOutline;
+          bg.zones.forEach(function (z) { pond.levels.push({ poly: z.poly, holes: z.holes, depth: bd, box: bbox(z.poly), bio: true }); });
+          pond.floorOutline = pondOutline;                     // дно — лише під глибокою частиною
         } else if (bd > p.D) {                                 // біоплато глибше за ставок: тоді ставок — «рівень»
           pond.depth = bd;
           pond.levels.push({ poly: pondOutline, holes: [], depth: p.D, box: bbox(pondOutline), water: true });
-          pond.floorOutline = j.zone;
         }
-        bioZone = { outline: j.zone, depth: bd, outer: bioOuter(j.rect, p.bio.side) };
+      } else if (p.bio.joined) {
+        // «Разом» без глибини біоплато (не заповнено) — плоскі ділянки впритул
+        bg.zones.forEach(function (z, i) { pits.push({ id: 'bio' + i, outline: z.poly, holes: z.holes, depth: 0, levels: [] }); });
       } else {
-        // «Окремо»: котлован по центру вибраної сторони з проміжком (як до v0.6.1);
-        // «Разом» без глибини біоплато (не заповнено) — плоска ділянка впритул
-        var bj = p.bio.joined ? bioJoin(p.shape, p.L, p.W, p.bio, p.bio.side) : null;
-        var br = bj ? bj.rect : bioRect(p.L, p.W, p.bio, p.bio.side);
-        var bo = bj ? bj.zone : rect(br[0], br[1], br[2], br[3]);
-        pits.push({ id: 'bio', outline: bo, depth: bd, levels: [] });
-        bioZone = { outline: bo, depth: bd, outer: bioOuter(br, p.bio.side) };
+        // «Окремо»: котловани з проміжком від ставка; суміжні Bio зі стиком — один котлован
+        bg.pits.forEach(function (z, i) { pits.push({ id: 'bio' + i, outline: z.outline, holes: z.holes, depth: bd, levels: [] }); });
       }
+      bios = bg.rects.map(function (r) { return { n: r.n, side: r.side, rect: r.r, outer: bioOuter(r.r, r.side) }; });
     }
     // Ділянка землі навколо котлованів: на кресленні ставок читається як «яма», а не коробка
     var xs = [], ys = [];
@@ -339,16 +420,16 @@ var PondGeo = (function () {
     var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);
     var y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
     var margin = Math.max(0.4, 0.08 * Math.max(x1 - x0, y1 - y0));
-    // bio — ділянка біоплато (для підпису «біоплато»; outer — її зовнішня сторона); pondOutline — контур ставка без біоплато
+    // bios — Bio для підписів «Bio-N» (outer — зовнішня сторона); pondOutline — контур ставка без біоплато
     return { pits: pits, ground: rect(x0 - margin, y0 - margin, x1 - x0 + 2 * margin, y1 - y0 + 2 * margin),
-             bio: bioZone, pondOutline: pondOutline };
+             bios: bios, pondOutline: pondOutline };
   }
 
   // Висота поверхні в точці плану: 0 — земля, −глибина — дно (або мілкіша сходинка, D33)
   function groundAt(scene, q) {
     for (var i = 0; i < scene.pits.length; i++) {
       var pit = scene.pits[i];
-      if (!inside(q, pit.outline)) continue;
+      if (!inside(q, pit.outline) || (pit.holes || []).some(function (h) { return inside(q, h); })) continue;
       var d = pit.depth;
       pit.levels.forEach(function (lv) {
         if (!(lv.depth < d)) return;
@@ -368,6 +449,7 @@ var PondGeo = (function () {
     }
     scene.pits.forEach(function (pit) {
       add(pit.outline);
+      (pit.holes || []).forEach(add);
       pit.levels.forEach(function (lv) { add(lv.poly); (lv.holes || []).forEach(add); });
     });
     return edges;
@@ -531,34 +613,37 @@ var PondGeo = (function () {
     var lines = [];
     var geo = levelGeometry(scene);
     scene.pits.forEach(function (pit) {
-      var o = pit.outline, n = o.length, D = pit.depth, stepped = pit.levels.length > 0;
-      lines.push({ pit: pit.id, kind: 'rim', closed: true, pts: o.map(function (p) { return [p[0], p[1], 0]; }) });
-      if (!(D > 0)) return;
-      if (!stepped) lines.push({ pit: pit.id, kind: 'floor', closed: true, pts: o.map(function (p) { return [p[0], p[1], -D]; }) });
-      // Зі сходинками низ стінки йде на висоті поверхні під нею — шматки з levelGeometry
-      for (var i = 0; i < n; i++) {
-        var prev = o[(i - 1 + n) % n], cur = o[i], next = o[(i + 1) % n];
-        var e1 = [cur[0] - prev[0], cur[1] - prev[1]], e2 = [next[0] - cur[0], next[1] - cur[1]];
-        var cosTurn = (e1[0] * e2[0] + e1[1] * e2[1]) / (Math.hypot(e1[0], e1[1]) * Math.hypot(e2[0], e2[1]));
-        var sharp = cosTurn < Math.cos(SHARP_TURN_DEG * Math.PI / 180);
-        // Зовнішня нормаль ребра (обхід за годинниковою на екрані): (e.y, −e.x)
-        var s1 = e1[1] * cam.c[0] - e1[0] * cam.c[1], s2 = e2[1] * cam.c[0] - e2[0] * cam.c[1];
-        var silhouette = s1 * s2 < 0; // округла стінка тут повертається від глядача
-        if (sharp || silhouette) {
-          var zb = -D;
-          if (stepped) {
-            // Низ ребра — мілкіша з поверхонь біля кута по обидва боки (проба всередину від кожного ребра).
-            // Опуклий кут: обидві проби в одній точці. Увігнутий (стик ставка з біоплато «Разом»): ребро — до мілкішого дна
-            var e = 3e-3 * Math.max(Math.abs(cur[0]), Math.abs(cur[1]), 1);
-            var l1 = Math.hypot(e1[0], e1[1]) || 1, l2 = Math.hypot(e2[0], e2[1]) || 1;
-            // Всередину від ребра при обході за годинниковою на екрані: (−e.y, e.x)
-            var q1 = [cur[0] + (-e1[0] - e1[1]) / l1 * e, cur[1] + (-e1[1] + e1[0]) / l1 * e];
-            var q2 = [cur[0] + (e2[0] - e2[1]) / l2 * e, cur[1] + (e2[1] + e2[0]) / l2 * e];
-            zb = Math.max(groundAt(scene, q1), groundAt(scene, q2));
+      // Зовнішній контур і дірки («острів» кільця біоплато) — однаково: край, дно, вертикальні ребра в кутах
+      [pit.outline].concat(pit.holes || []).forEach(function (o) {
+        var n = o.length, D = pit.depth, stepped = pit.levels.length > 0;
+        lines.push({ pit: pit.id, kind: 'rim', closed: true, pts: o.map(function (p) { return [p[0], p[1], 0]; }) });
+        if (!(D > 0)) return;
+        if (!stepped) lines.push({ pit: pit.id, kind: 'floor', closed: true, pts: o.map(function (p) { return [p[0], p[1], -D]; }) });
+        // Зі сходинками низ стінки йде на висоті поверхні під нею — шматки з levelGeometry
+        for (var i = 0; i < n; i++) {
+          var prev = o[(i - 1 + n) % n], cur = o[i], next = o[(i + 1) % n];
+          var e1 = [cur[0] - prev[0], cur[1] - prev[1]], e2 = [next[0] - cur[0], next[1] - cur[1]];
+          var cosTurn = (e1[0] * e2[0] + e1[1] * e2[1]) / (Math.hypot(e1[0], e1[1]) * Math.hypot(e2[0], e2[1]));
+          var sharp = cosTurn < Math.cos(SHARP_TURN_DEG * Math.PI / 180);
+          // Зовнішня нормаль ребра (обхід за годинниковою на екрані): (e.y, −e.x)
+          var s1 = e1[1] * cam.c[0] - e1[0] * cam.c[1], s2 = e2[1] * cam.c[0] - e2[0] * cam.c[1];
+          var silhouette = s1 * s2 < 0; // округла стінка тут повертається від глядача
+          if (sharp || silhouette) {
+            var zb = -D;
+            if (stepped) {
+              // Низ ребра — мілкіша з поверхонь біля кута по обидва боки (проба всередину від кожного ребра).
+              // Опуклий кут: обидві проби в одній точці. Увігнутий (стик ставка з біоплато «Разом»): ребро — до мілкішого дна
+              var e = 3e-3 * Math.max(Math.abs(cur[0]), Math.abs(cur[1]), 1);
+              var l1 = Math.hypot(e1[0], e1[1]) || 1, l2 = Math.hypot(e2[0], e2[1]) || 1;
+              // Всередину від ребра при обході за годинниковою на екрані: (−e.y, e.x)
+              var q1 = [cur[0] + (-e1[0] - e1[1]) / l1 * e, cur[1] + (-e1[1] + e1[0]) / l1 * e];
+              var q2 = [cur[0] + (e2[0] - e2[1]) / l2 * e, cur[1] + (e2[1] + e2[0]) / l2 * e];
+              zb = Math.max(groundAt(scene, q1), groundAt(scene, q2));
+            }
+            lines.push({ pit: pit.id, kind: 'edge', closed: false, pts: [[cur[0], cur[1], 0], [cur[0], cur[1], zb]] });
           }
-          lines.push({ pit: pit.id, kind: 'edge', closed: false, pts: [[cur[0], cur[1], 0], [cur[0], cur[1], zb]] });
         }
-      }
+      });
     });
     geo.lines.forEach(function (l) { lines.push(l); });
     // Вертикальні ребра підйомів: стик зі стінкою і гострі кути — завжди; на дугах — лише силует
@@ -584,9 +669,11 @@ var PondGeo = (function () {
 
     scene.pits.forEach(function (pit) {
       var proj = function (ring, z) { return ring.map(function (p) { return project(cam, p[0], p[1], z); }); };
-      out.fills.push({ pit: pit.id, kind: 'rim', pts: proj(pit.outline, 0) });
+      var holes = pit.holes || [];
+      out.fills.push({ pit: pit.id, kind: 'rim', pts: proj(pit.outline, 0), holes: holes.map(function (h) { return proj(h, 0); }) });
       // Дно — лише під найглибшою частиною (біоплато «Разом» має свою поверхню-рівень)
-      if (pit.depth > 0) out.fills.push({ pit: pit.id, kind: 'floor', pts: proj(pit.floorOutline || pit.outline, -pit.depth) });
+      if (pit.depth > 0) out.fills.push({ pit: pit.id, kind: 'floor', pts: proj(pit.floorOutline || pit.outline, -pit.depth),
+                                          holes: pit.floorOutline ? [] : holes.map(function (h) { return proj(h, -pit.depth); }) });
       // Поверхні сходинок — від глибокої до мілкої: мілкіша малюється зверху
       pit.levels.slice().sort(function (a, b) { return b.depth - a.depth; }).forEach(function (lv) {
         var pr = function (r) { return r.map(function (p) { return project(cam, p[0], p[1], -lv.depth); }); };
@@ -703,7 +790,8 @@ var PondGeo = (function () {
     camera: camera, project: project, isVisible: isVisible,
     sceneLines: sceneLines, render: render, stableBounds: stableBounds,
     sceneCenter: sceneCenter, projectedPoints: projectedPoints, convexHull: convexHull,
-    simplifyRing: simplifyRing, levelGeometry: levelGeometry, bioRect: bioRect, bioJoin: bioJoin, bioOuter: bioOuter, BIO_SIDES: BIO_SIDES
+    simplifyRing: simplifyRing, levelGeometry: levelGeometry, bioGeometry: bioGeometry, bioOuter: bioOuter, bioGap: bioGap,
+    cleanRing: cleanRing, BIO_SIDES: BIO_SIDES, CW_SIDES: CW_SIDES
   };
 })();
 

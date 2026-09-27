@@ -123,8 +123,8 @@ var UI = (function () {
   }
 
   /*
-   * Схема ставка зверху в реальних пропорціях + біоплато з вибраного боку.
-   * bioOpt = { side: 'right' | 'bottom' | 'left' | 'top', joined } — joined: біоплато «Разом» (впритул, одне дзеркало, D56).
+   * Схема ставка зверху в реальних пропорціях + біоплато Bio-1 … Bio-4 (m.bioPlates, v0.7.1).
+   * bioOpt = { joined } — біоплато «Разом» (впритул, одне дзеркало, D56) або «Окремо» (з проміжком).
    * overlay (Про-режим, необов'язково) — у координатах плану, м:
    *   layers: [{ rings: [[[x, y], …], …], rank, active, error }] — сходинки (rank 0 — наймілкіша);
    *   points: [{ id, p: [x, y], selected }] — точки активної сходинки, їх натискають (data-point).
@@ -157,12 +157,18 @@ var UI = (function () {
     var ov = overlay || { layers: [], points: [] };
     var withPts = ov.points.length > 0;
 
-    // Біоплато — з вибраного боку (PondGeo.bioRect, те саме, що в 3D); підписи розмірів — на вільному боці
+    // Біоплато (PondGeo.bioGeometry, те саме, що в 3D): «Разом» — спільний контур дзеркала, мілкі зони й шов
+    // по стінці ставка; «Окремо» — котловани з проміжком. Підписи розмірів — на вільному від Bio боці
     bioOpt = bioOpt || {};
-    var side = m.hasBio ? (bioOpt.side || 'right') : 'right';
-    // «Разом»: спільний контур дзеркала, мілка зона біоплато і шов по стінці ставка (PondGeo.bioJoin, те саме в 3D)
-    var jn = m.hasBio && bioOpt.joined ? PondGeo.bioJoin(shape, m.L, m.W, { L: m.Lb, W: m.Wb }, side) : null;
-    var br = jn ? jn.rect : m.hasBio ? PondGeo.bioRect(m.L, m.W, { L: m.Lb, W: m.Wb }, side) : null;
+    var bg = m.hasBio ? PondGeo.bioGeometry(shape, m.L, m.W, m.bioPlates, !!bioOpt.joined) : null;
+    var jn = bg && bg.union ? bg : null;
+    var hasSide = {};
+    (bg ? bg.rects : []).forEach(function (r) { hasSide[r.side] = true; });
+    // Габарит усього креслення (ставок + біоплато) — туди виносимо підпис, коли обидва боки зайняті
+    var ext = [0, 0, m.L, m.W];
+    (bg ? bg.rects.map(function (r) { return r.r; }).concat(bg.corners) : []).forEach(function (r) {
+      ext = [Math.min(ext[0], r[0]), Math.min(ext[1], r[1]), Math.max(ext[2], r[0] + r[2]), Math.max(ext[3], r[1] + r[3])];
+    });
     // 1. Що має вміститися: контури (м, план) + підписи й кружечки точок (px навколо точки плану)
     var pts = [];
     function add(mx, my, dx, dy) { pts.push({ mx: mx, my: my, dx: dx || 0, dy: dy || 0 }); }
@@ -182,20 +188,18 @@ var UI = (function () {
     }
     var tw = function (t) { return 0.6 * fontPx * t.length + 4; };   // оцінка ширини тексту, px
     var asc = 0.75 * fontPx, desc = 0.25 * fontPx;
-    var labelTop = side === 'bottom', labelRight = side === 'left';   // «L м» над ставком, «W м» праворуч
+    // «L м» — під ставком; Bio знизу → над ставком; Bio і знизу, і згори → під усім кресленням (так само «W м»)
+    var labelTop = hasSide.bottom && !hasSide.top, labelRight = hasSide.left && !hasSide.right;
+    var lenY = hasSide.bottom && hasSide.top ? ext[3] : m.W, widX = hasSide.left && hasSide.right ? ext[0] : 0;
     var off = withPts ? 14 : 6, lenBase = withPts ? 24 : 17;
-    var lenT = Format.qty(m.L) + ' м', widT = Format.qty(m.W) + ' м', BIO_T = 'біоплато';
+    var lenT = Format.qty(m.L) + ' м', widT = Format.qty(m.W) + ' м';
     addRing(jn ? jn.union : PondGeo.outline(shape, m.L, m.W));
-    if (br && !jn) addRing(PondGeo.rect(br[0], br[1], br[2], br[3]));
+    if (bg && !jn) bg.pits.forEach(function (pt) { addRing(pt.outline); });
     ov.points.forEach(function (pt) { addBox(pt.p[0], pt.p[1], -11, -11, 11, 11); });  // кружечок r = 8,5 + обведення
     if (labelTop) addBox(m.L / 2, 0, -tw(lenT) / 2, -(off + 3) - asc, tw(lenT) / 2, -(off + 3) + desc);
-    else addBox(m.L / 2, m.W, -tw(lenT) / 2, lenBase - asc, tw(lenT) / 2, lenBase + desc);
+    else addBox(m.L / 2, lenY, -tw(lenT) / 2, lenBase - asc, tw(lenT) / 2, lenBase + desc);
     if (labelRight) addBox(m.L, m.W / 2, off, 4 - asc, off + tw(widT), 4 + desc);
-    else addBox(0, m.W / 2, -off - tw(widT), 4 - asc, -off, 4 + desc);
-    if (br) {
-      if (side === 'right' || side === 'left') addBox(br[0] + br[2] / 2, br[1] + br[3], -tw(BIO_T) / 2, 17 - asc, tw(BIO_T) / 2, 17 + desc);
-      else addBox(br[0] + br[2], br[1] + br[3] / 2, 6, 4 - asc, 6 + tw(BIO_T), 4 + desc);  // праворуч від біоплато
-    }
+    else addBox(widX, m.W / 2, -off - tw(widT), 4 - asc, -off, 4 + desc);
 
     // 2. Масштаб і місце креслення (fitPlan): X = offX + s·mx + dx, Y = t + s·my + dy
     // Лінії розрізів А–А (по довжині) і Б–Б (по ширині), v0.7.0: літера — з боку, протилежного підпису розміру
@@ -214,10 +218,12 @@ var UI = (function () {
 
     function ringD(ring) { return 'M' + ring.map(X).join('L') + 'Z'; }
     if (jn) {
-      // Одне дзеркало: ставок + біоплато одним контуром; біоплато — мілка зона («пісок»), шов — пунктир
+      // Одне дзеркало: ставок + біоплато одним контуром; біоплато — мілкі зони («пісок»), шов — пунктир
       node('path', { d: ringD(jn.union), 'class': 'sk-water' + (shape === 'custom' ? ' sk-water--custom' : '') });
-      node('path', { d: ringD(jn.zone), 'class': 'sk-bio-zone' });
-      node('path', { d: 'M' + jn.seam.map(X).join('L'), 'class': 'sk-bio-seam' });
+      jn.zones.forEach(function (z) {
+        node('path', { d: ringD(z.poly) + z.holes.map(ringD).join(''), 'fill-rule': 'evenodd', 'class': 'sk-bio-zone' });
+      });
+      jn.seams.forEach(function (l) { node('path', { d: 'M' + l.map(X).join('L'), 'class': 'sk-bio-seam' }); });
     } else if (shape === 'oval') {
       node('ellipse', { cx: x0 + w / 2, cy: y0 + h / 2, rx: w / 2, ry: h / 2, 'class': 'sk-water' });
     } else if (shape === 'custom') {
@@ -253,23 +259,35 @@ var UI = (function () {
 
     // Підписи розмірів: довжина — під ставком (над ним, коли біоплато знизу), ширина — ліворуч (праворуч, коли біоплато ліворуч)
     var off = withPts ? 14 : 6;
-    node('text', { x: x0 + w / 2, y: labelTop ? y0 - off - 3 : y0 + h + (withPts ? 24 : 17), 'text-anchor': 'middle', 'class': 'sk-label' }, Format.qty(m.L) + ' м');
-    node('text', { x: labelRight ? x0 + w + off : x0 - off, y: y0 + h / 2 + 4, 'text-anchor': labelRight ? 'start' : 'end', 'class': 'sk-label' }, Format.qty(m.W) + ' м');
+    node('text', { x: x0 + w / 2, y: labelTop ? y0 - off - 3 : y0 + lenY * scale + (withPts ? 24 : 17), 'text-anchor': 'middle', 'class': 'sk-label' }, Format.qty(m.L) + ' м');
+    node('text', { x: labelRight ? x0 + w + off : x0 + widX * scale - off, y: y0 + h / 2 + 4, 'text-anchor': labelRight ? 'start' : 'end', 'class': 'sk-label' }, Format.qty(m.W) + ' м');
     // Глибину пишемо всередині, лише якщо вона введена, текст вміщується і немає сходинок
     if (m.D > 0 && w > 92 && h > 22 && !ov.layers.length) {
       node('text', { x: x0 + w / 2, y: y0 + h / 2 + 4, 'text-anchor': 'middle', 'class': 'sk-label sk-label--in' },
         'глибина ' + Format.qty(m.D) + ' м');
     }
 
-    if (br) {
-      var bx = x0 + br[0] * scale, by = y0 + br[1] * scale, bw = br[2] * scale, bh = br[3] * scale;
-      if (!jn) node('rect', { x: bx, y: by, width: bw, height: bh, rx: 2, ry: 2, 'class': 'sk-bio' }); // «Окремо» — пунктирний котлован
-      if (side === 'right' || side === 'left') {                  // підпис під біоплато
-        node('text', { x: bx + bw / 2, y: by + bh + 17, 'text-anchor': 'middle', 'class': 'sk-label' }, bw > 56 ? 'біоплато' : 'біо');
-      } else {                                                    // згори / знизу — збоку від біоплато
-        var roomRight = box.w - PAD - (bx + bw + 6) >= tw(BIO_T) - 4;   // місце праворуч зарезервоване в п. 1
-        node('text', { x: roomRight ? bx + bw + 6 : bx - 6, y: by + bh / 2 + 4, 'text-anchor': roomRight ? 'start' : 'end', 'class': 'sk-label' }, 'біоплато');
-      }
+    if (bg) {
+      // «Окремо» — пунктирні котловани (суміжні Bio зі стиком — один; 4 Bio — кільце з «островом»)
+      if (!jn) bg.pits.forEach(function (pt) {
+        node('path', { d: ringD(pt.outline) + pt.holes.map(ringD).join(''), 'fill-rule': 'evenodd', 'class': 'sk-bio' });
+      });
+      // Підпис «Bio-N» усередині свого Bio (уздовж; на бічних — повернутий). Вузьке — лише номер і дрібніше; зовсім вузьке — без підпису
+      bg.rects.forEach(function (b) {
+        var bx = x0 + b.r[0] * scale, by = y0 + b.r[1] * scale, bw = b.r[2] * scale, bh = b.r[3] * scale;
+        var vert = b.side === 'left' || b.side === 'right', along = vert ? bh : bw, thick = vert ? bw : bh;
+        var opts = [['Bio-' + b.n, fontPx], ['Bio-' + b.n, Math.max(9, fontPx * 0.8)], [String(b.n), fontPx], [String(b.n), 9]];
+        for (var i = 0; i < opts.length; i++) {
+          var t = opts[i][0], f = opts[i][1];
+          if (thick < f + 2 || along < 0.6 * f * t.length + 6) continue;
+          var cx = bx + bw / 2, cy = by + bh / 2;
+          var at = { x: cx.toFixed(1), y: (cy + 0.35 * f).toFixed(1), 'text-anchor': 'middle', 'class': 'sk-label sk-bio-label',
+                     style: 'font-size:' + f.toFixed(1) + 'px' };        // style, а не атрибут: інакше переважить CSS .sk-label
+          if (vert) at.transform = 'rotate(-90 ' + cx.toFixed(1) + ' ' + cy.toFixed(1) + ')';
+          node('text', at, t);
+          break;
+        }
+      });
     }
 
     // Точки активної сходинки: номер у кружечку; прозоре коло більшого радіуса — зона дотику для пальця

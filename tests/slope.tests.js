@@ -15,6 +15,16 @@ var SlopeTests = (function () {
         return near(Sl.angleDeg(1), 45) && near(Sl.angleDeg(0), 90) && near(Sl.angleDeg(2), 26.565, 1e-3) &&
           near(Sl.filmDepth(1.5, 0), 1.5) && near(metrics({ shape: 'rect', L: 6, W: 4, D: 1.5 }).filmArea, 80);
       }],
+      ['Кут у градусах (v0.7.1): 90° → m = 0, 45° → 1, 85° → 0,0875, 30° → 1,732; туди й назад без втрат', function () {
+        return Sl.mFromDeg(90) === 0 && near(Sl.mFromDeg(45), 1) && near(Sl.mFromDeg(85), 0.08749, 1e-5) &&
+          near(Sl.mFromDeg(30), Math.sqrt(3)) && near(Sl.angleDeg(Sl.mFromDeg(62.5)), 62.5);
+      }],
+      ['Шви «Разом» — кілька ламаних (v0.7.1): укіс від глибини біоплато біля кожного шва', function () {
+        var pond = G.outline('rect', 6, 3);
+        var f = Sl.field({ outline: pond, D: 1.5, m: 1, seam: { lines: [[[6, 0], [6, 3]], [[0, 3], [0, 0]]], depth: 0.3 } });
+        // Біля швів (x = 0 і x = 6) глибина — від 0,3 (плюс укіс), біля стінок y = 0 / 3 — від 0
+        return near(f.depthAt([5.9, 1.5]), 0.4, 1e-3) && near(f.depthAt([0.1, 1.5]), 0.4, 1e-3) && near(f.depthAt([3, 0.1]), 0.1, 1e-3);
+      }],
       ['Прямокутник без сходинок: V з укосом = точна формула (похибка < 0,1%)', function () {
         return [[6, 4, 1.5, 1], [6, 4, 1.5, 0.5], [20, 3, 1, 1], [10, 5, 3, 0.5]].every(function (c) {
           var v = metrics({ shape: 'rect', L: c[0], W: c[1], D: c[2], slope_m: c[3] }).V;
