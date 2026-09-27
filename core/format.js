@@ -121,6 +121,13 @@ var Format = (function () {
       qty(m.L) + ' × ' + qty(m.W) + ' × ' + qty(m.D) + ' м' + (inp.fish ? ', з рибою' : ', без риби'));
     out.push('Площа дзеркала ' + qty(m.S) + ' м², об\'єм води ' + qty(m.Vtotal) + ' м³');
     if (m.hasBio) out.push('Біоплато: ' + qty(m.Lb) + ' × ' + qty(m.Wb) + ' м');
+    // Сходинки (Про-режим): глибина і видима площа кожного рівня, від мілкого до дна
+    var st = m.steps;
+    if (st && st.available) {
+      var levels = st.layers.filter(function (l) { return l.valid; }).sort(function (a, b) { return a.depth - b.depth; })
+        .map(function (l) { return number(l.depth * 100, 0) + ' см — ' + qty(l.visible) + ' м²'; });
+      if (levels.length) out.push('Рівні: ' + levels.join('; ') + '; дно ' + qty(m.D) + ' м — ' + qty(m.Sdeep) + ' м²');
+    }
 
     // Націнку клієнту окремо не показуємо: додаємо її до «Монтажних робіт», щоб суми сходилися.
     // Знижку (від'ємна націнка) показуємо окремим рядком — це клієнту приємно бачити.

@@ -71,6 +71,23 @@ var PondGeoTests = (function () {
         var bio = sc.pits[1];
         return sc.pits.length === 2 && bio.outline[0][0] > 6 && G.groundAt(sc, [bio.outline[0][0] + 1, 2]) === -0.3;
       }],
+      ['Рівні (A2.1): кільце-полиця з діркою — у дірці дно, на полиці її глибина', function () {
+        var sc = G.buildScene({ shape: 'rect', L: 6, W: 4, D: 1.5,
+          levels: [{ poly: G.rect(0, 0, 6, 4), holes: [G.rect(1, 1, 4, 2)], depth: 0.3 }] });
+        return G.groundAt(sc, [0.5, 2]) === -0.3 && G.groundAt(sc, [3, 2]) === -1.5;
+      }],
+      ['Рівні: край полиці — лінія на −0,2; низ стінки — −0,2 під полицею і −1,5 поза нею', function () {
+        var sc = G.buildScene({ shape: 'rect', L: 6, W: 4, D: 1.5, levels: [{ poly: G.rect(0, 3, 6, 1), depth: 0.2 }] });
+        var geo = G.levelGeometry(sc);
+        var steps = geo.lines.filter(function (l) { return l.kind === 'step'; });
+        var floors = geo.lines.filter(function (l) { return l.kind === 'floor'; }).map(function (l) { return l.z; });
+        return steps.length === 1 && near(steps[0].z, -0.2) && near(steps[0].pts[0][1], 3) &&
+          floors.indexOf(-0.2) !== -1 && floors.indexOf(-1.5) !== -1;
+      }],
+      ['Рівні: кути прямокутної сходинки не губляться при спрощенні', function () {
+        var sc = G.buildScene({ shape: 'rect', L: 8, W: 4, D: 1.6, levels: [{ poly: [[0, 0], [2, 0], [2, 4], [0, 4]], depth: 0.25 }] });
+        return sc.pits[0].levels[0].poly.length === 4;
+      }],
       ['Межі сталі для всіх кутів огляду: ширина ≥ діагоналі ставка', function () {
         var b = G.stableBounds(rect, 40);
         return b.maxX - b.minX >= Math.hypot(6, 4) - 1e-6 && b.maxY > b.minY;

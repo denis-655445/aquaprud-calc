@@ -19,11 +19,13 @@ var Sketch3D = (function () {
   var PAD = 6;                  // мінімальний відступ креслення від краю блока, px
   var GAP = 6;                  // відступ від кнопок поверх схеми, px
   var STEP_PX = 1.5;            // крок перевірки видимості вздовж ребра, px
+  var STEP_PX_FAST = 3;         // під час анімації повороту — грубіше, щоб кадри встигали на телефоні
   var LABEL_PX = 13;            // розмір шрифту підписів (множиться на --fs), як .s3-label у CSS
   var LABEL_GAP = 5;            // від котлована до підпису «біоплато», px
   var BIO_TEXT = 'біоплато';
   var uid = 0;                  // унікальні id обрізок: на сторінці може бути кілька схем
   var cache = { key: null, fit: null }; // масштаб рахуємо один раз, а не на кожен кадр повороту
+  var sceneCache = { key: null, levels: null, scene: null }; // сцена з геометрією сходинок — теж
 
   // Ламана → атрибут d; координати з одним знаком після коми — коротший SVG
   function pathD(pts, close) {
@@ -135,7 +137,7 @@ var Sketch3D = (function () {
   }
 
   /*
-   * opts = { shape, L, W, D, bio: { L, W, depth } | null, azimuth,
+   * opts = { shape, L, W, D, bio: { L, W, depth } | null, levels: [{ poly, holes, depth }], azimuth, fast,
    *          box: { w, hMax } — ширина блока і найбільша висота, px,
    *          avoid: { top: [{ x0, x1, y1 }], bottom: [{ x0, x1, h }] } — кнопки поверх схеми, px,
    *          fs — множник розміру тексту }
@@ -151,7 +153,12 @@ var Sketch3D = (function () {
       return { viewBox: '0 0 ' + box.w + ' ' + hh, height: hh, items: items };
     }
 
-    var scene = PondGeo.buildScene(opts);
+    // Сцена не залежить від кута: під час повороту беремо ту саму (levels — той самий масив з app.js)
+    var skey = JSON.stringify([opts.shape, opts.L, opts.W, opts.D, opts.bio]);
+    if (sceneCache.key !== skey || sceneCache.levels !== opts.levels) {
+      sceneCache = { key: skey, levels: opts.levels, scene: PondGeo.buildScene(opts) };
+    }
+    var scene = sceneCache.scene;
     // Масштаб не залежить від поточного кута — тож рахуємо його раз на розмір ставка й блока
     var key = JSON.stringify([opts.shape, opts.L, opts.W, opts.D, opts.bio, box, opts.avoid, opts.fs, opts.views]);
     if (cache.key !== key) cache = { key: key, fit: fitLayout(scene, opts) };
@@ -163,7 +170,7 @@ var Sketch3D = (function () {
     function toSvg(p) { return [fit.offX + (p[0] - c0[0]) * s, fit.t + (p[1] - c0[1] - fit.minY) * s]; }
     function mapPts(pts) { return pts.map(toSvg); }
 
-    var r = PondGeo.render(scene, cam, STEP_PX / s);
+    var r = PondGeo.render(scene, cam, (opts.fast ? STEP_PX_FAST : STEP_PX) / s);
 
     // Заливки: земля; отвір котлована = видимі стінки; дно поверх, обрізане краєм (земля заступає решту)
     var defs = { tag: 'defs', attrs: {}, children: [] };
@@ -181,6 +188,11 @@ var Sketch3D = (function () {
       if (floor) {
         items.push({ tag: 'path', attrs: { d: pathD(mapPts(floor.pts), true), 'class': 's3-floor', 'clip-path': 'url(#' + clipId + ')' } });
       }
+      // Сходинки: від глибокої до мілкої (порядок уже в render), кільце — з діркою
+      r.fills.filter(function (f) { return f.pit === pit.id && f.kind === 'level'; }).forEach(function (f) {
+        var d = pathD(mapPts(f.pts), true) + f.holes.map(function (h) { return pathD(mapPts(h), true); }).join('');
+        items.push({ tag: 'path', attrs: { d: d, 'fill-rule': 'evenodd', 'class': 's3-level', 'clip-path': 'url(#' + clipId + ')' } });
+      });
     });
 
     // Невидимі ребра — пунктиром, видимі — суцільні (поверх)
@@ -188,7 +200,7 @@ var Sketch3D = (function () {
       items.push({ tag: 'path', attrs: { d: pathD(mapPts(l.pts), false), 'class': 's3-line s3-line--hidden' } });
     });
     r.visible.forEach(function (l) {
-      items.push({ tag: 'path', attrs: { d: pathD(mapPts(l.pts), false), 'class': 's3-line' + (l.kind === 'rim' ? ' s3-line--rim' : '') } });
+      items.push({ tag: 'path', attrs: { d: pathD(mapPts(l.pts), false), 'class': 's3-line' + (l.kind === 'rim' ? ' s3-line--rim' : l.kind === 'step' ? ' s3-line--step' : '') } });
     });
 
     // Підпис «біоплато»: над котлованом або під ним (див. bioLabelAnchor)

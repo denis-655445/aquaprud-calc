@@ -155,6 +155,7 @@ select.input {
 .s3-ground { fill: var(--ground); fill-opacity: 0.14; stroke: var(--ground); stroke-opacity: 0.4; stroke-width: 1; }
 .s3-wall { fill: var(--water); fill-opacity: 0.22; }
 .s3-floor { fill: var(--water); fill-opacity: 0.14; }
+.s3-level { fill: var(--ground); fill-opacity: 0.2; }  /* сходинка — «пісок», як на 2D */
 .s3-line { fill: none; stroke: var(--water); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
 .s3-line--rim { stroke-width: 2; }
 .s3-line--hidden { stroke-width: 1; stroke-dasharray: 4 3; stroke-linecap: butt; opacity: 0.6; }
@@ -166,6 +167,34 @@ select.input {
 .sk-label { fill: var(--hint); font-size: calc(12px * var(--fs)); font-variant-numeric: tabular-nums; }
 .sk-label--in { fill: var(--water); }
 .sk-hint { fill: var(--hint); font-size: calc(13px * var(--fs)); }
+
+/* ===== Сходинки на 2D-схемі: мілкіша — «пісок» (колір землі), глибока — вода ===== */
+.sk-step { fill: var(--ground); stroke: var(--water); stroke-width: 1.2; stroke-linejoin: round; }
+.sk-step.is-active { stroke-width: 2.4; }
+.sk-step.is-error { stroke: var(--danger); stroke-dasharray: 4 3; }
+/* Точки: натискати можна лише в Про-режимі; зона дотику — прозоре коло r = 16 */
+.sk-pt { cursor: pointer; }
+.sk-pt__hit { fill: transparent; }
+.sk-pt__dot { fill: var(--card); stroke: var(--water); stroke-width: 1.6; }
+.sk-pt__num { fill: var(--water); font-size: 10px; font-weight: 700; pointer-events: none; }
+.sk-pt.is-on .sk-pt__dot { fill: var(--water); }
+.sk-pt.is-on .sk-pt__num { fill: var(--card); }
+
+/* ===== Редактор сходинок під схемою ===== */
+.steps { margin: 0 0 12px; padding: 10px 12px 4px; border-radius: 10px; background: var(--bg); }
+.steps .seg { background: var(--card); margin-bottom: 10px; }
+.steps .seg__btn[aria-pressed="true"] { background: var(--bg); }
+.steps .counter__btn { background: var(--card); }
+.steps .input { background: var(--card); }
+.steps__muted { color: var(--hint); font-size: calc(13px * var(--fs)); }
+.steps__note { margin: 0 0 10px; color: var(--hint); font-size: calc(14px * var(--fs)); }
+.steps__result { margin: 0 0 8px; font-size: calc(14px * var(--fs)); font-variant-numeric: tabular-nums; }
+.steps__result span { display: block; color: var(--hint); }
+.steps__fields { grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); margin-top: 2px; }
+.steps .warnings li.is-warn { border-color: var(--line); color: var(--hint); }
+.steps .chip { margin: 2px 0 10px; }
+#levelsCounter.is-off .counter__value { opacity: 0.4; } /* 1 рівень = лише дно (D38) */
+.seg__btn.is-error { color: var(--danger); }
 
 /* ===== Перемикач: клікабельний лише сам перемикач, підпис поруч — ні (8) ===== */
 .switch { display: flex; align-items: center; min-height: 44px; margin-bottom: 8px; }

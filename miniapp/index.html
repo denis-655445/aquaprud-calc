@@ -9,7 +9,7 @@
   <!-- SDK Telegram Mini Apps: дає Telegram.WebApp (тема, кнопки, вібровідгук) -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <!-- ?v=N — версія файлу: змінюємо при кожному оновленні, бо Telegram кешує Mini App -->
-  <link rel="stylesheet" href="css/style.css?v=5">
+  <link rel="stylesheet" href="css/style.css?v=6">
 </head>
 <body>
   <header class="head">
@@ -47,6 +47,45 @@
           <button type="button" class="scene__arrow" data-rotate="1" aria-label="Наступний ракурс">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>
           </button>
+        </div>
+      </div>
+
+      <!-- Сходинки (Про-режим, D46): вмикаються в службовій панелі; точки обирають натисканням на 2D-схемі -->
+      <div id="stepsBox" class="steps" hidden>
+        <div class="counter" id="levelsCounter">
+          <span class="counter__label">Рівні <span id="levelsHint" class="steps__muted"></span></span>
+          <button type="button" class="counter__btn" data-levels="-1" aria-label="Менше рівнів">−</button>
+          <output id="levels" class="counter__value">1</output>
+          <button type="button" class="counter__btn" data-levels="1" aria-label="Більше рівнів">+</button>
+        </div>
+        <p id="stepsUnavailable" class="steps__note" hidden></p>
+        <div id="stepEditor" hidden>
+          <div id="stepTabs" class="seg" role="group" aria-label="Сходинка"></div>
+          <div class="seg" role="group" aria-label="Тип сходинки">
+            <button type="button" class="seg__btn" data-steptype="shelf">Полиця</button>
+            <button type="button" class="seg__btn" data-steptype="platform">Платформа</button>
+            <button type="button" class="seg__btn" data-steptype="corner">Від кута</button>
+          </div>
+          <div id="stepEdgeSeg" class="seg" role="group" aria-label="Край сходинки">
+            <button type="button" class="seg__btn" data-stepedge="straight">Прямі</button>
+            <button type="button" class="seg__btn" data-stepedge="round">Округлі</button>
+          </div>
+          <p id="stepHint" class="steps__note"></p>
+          <div class="grid3 steps__fields">
+            <label class="field" id="fWc"><span class="field__label" id="fWcLabel">Ширина, м</span>
+              <input id="stepWc" class="input" inputmode="decimal" autocomplete="off"></label>
+            <label class="field" id="fWe"><span class="field__label">На кінцях, м</span>
+              <input id="stepWe" class="input" inputmode="decimal" autocomplete="off"></label>
+            <label class="field" id="fA"><span class="field__label">Довжина, м</span>
+              <input id="stepA" class="input" inputmode="decimal" autocomplete="off"></label>
+            <label class="field" id="fB"><span class="field__label">Ширина, м</span>
+              <input id="stepB" class="input" inputmode="decimal" autocomplete="off"></label>
+            <label class="field"><span class="field__label">Глибина, см</span>
+              <input id="stepDepth" class="input" inputmode="decimal" autocomplete="off"></label>
+          </div>
+          <p id="stepResult" class="steps__result"></p>
+          <ul id="stepIssues" class="warnings"></ul>
+          <button id="splitDepths" type="button" class="chip">Поділити глибину порівну</button>
         </div>
       </div>
 
@@ -257,6 +296,13 @@
           <span class="switch__text">Приховати ціни на екрані</span>
         </label>
       </div>
+      <div class="svc-row switch">
+        <label class="switch__control">
+          <input id="proSteps" type="checkbox">
+          <span class="switch__track" aria-hidden="true"></span>
+          <span class="switch__text">Сходинки (Про-режим)</span>
+        </label>
+      </div>
       <div class="svc-row">
         <span id="fontLabel" class="svc-row__label">Розмір тексту</span>
         <div class="seg" role="group" aria-labelledby="fontLabel">
@@ -270,15 +316,15 @@
   </div>
 
   <!-- Порядок важливий: конфіг → дані → ядро → API → інтерфейс → запуск -->
-  <script src="js/config.js?v=5"></script>
-  <script src="../data/catalog.sample.js?v=5"></script>
-  <script src="../core/calc.js?v=5"></script>
-  <script src="../core/format.js?v=5"></script>
-  <script src="../core/pondgeo.js?v=5"></script>
-  <script src="../core/stairs.js?v=5"></script>
-  <script src="js/api.js?v=5"></script>
-  <script src="js/ui.js?v=5"></script>
-  <script src="js/sketch3d.js?v=5"></script>
-  <script src="js/app.js?v=5"></script>
+  <script src="js/config.js?v=6"></script>
+  <script src="../data/catalog.sample.js?v=6"></script>
+  <script src="../core/calc.js?v=6"></script>
+  <script src="../core/format.js?v=6"></script>
+  <script src="../core/pondgeo.js?v=6"></script>
+  <script src="../core/stairs.js?v=6"></script>
+  <script src="js/api.js?v=6"></script>
+  <script src="js/ui.js?v=6"></script>
+  <script src="js/sketch3d.js?v=6"></script>
+  <script src="js/app.js?v=6"></script>
 </body>
 </html>

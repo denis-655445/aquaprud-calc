@@ -83,11 +83,108 @@ var PondGeo = (function () {
   // ---------- Сцена: котловани ставка й біоплато ----------
 
   /*
-   * p = { shape, L, W, D, bio: { L, W, depth } | null }
-   * Котлован (pit): { id, outline, depth, levels } — levels: сходинки [{ poly, depth }] (етап A2.1)
+   * Кільце сходинки для 3D: ділянки вздовж стінки лишаємо на стінці (лише проріджуємо до кроку контуру),
+   * а внутрішній край спрощуємо (Дуглас — Пекер): дуги зі 120 точок → кілька десятків.
+   * Інакше хорди спрощення відходять від стінки овалу на 1–2 см і дають фальшиві «підйоми».
+   */
+  function prepLevelRing(ring, wall, tol) {
+    var n = ring.length, per = 0;
+    wall.forEach(function (q, i) { var r = wall[(i + 1) % wall.length]; per += Math.hypot(r[0] - q[0], r[1] - q[1]); });
+    var gap = per / wall.length, wallTol = 1e-6 + 2e-3 * Math.max.apply(null, bbox(wall).map(Math.abs));
+    var onWall = ring.map(function (q) { return distToRing(q, wall) < wallTol; });
+    // Сторона по стінці: обидва кінці й середина на стінці (хорда платформи між двома точками стінки — ні)
+    var wallE = ring.map(function (q, i) {
+      var r = ring[(i + 1) % n];
+      return onWall[i] && onWall[(i + 1) % n] && distToRing([(q[0] + r[0]) / 2, (q[1] + r[1]) / 2], wall) < wallTol;
+    });
+    if (!wallE.some(Boolean)) return simplifyRing(ring, tol);
+    // Обов'язкові вершини: стик стінки з краєм і точки стінки з кроком ≈ кроку контуру
+    var keep = ring.map(function () { return false; }), last = null;
+    // Злам стінки (кут прямокутника, заокруглення) проріджувати не можна
+    function sharp(i) {
+      var p0 = ring[(i - 1 + n) % n], p1 = ring[i], p2 = ring[(i + 1) % n];
+      var e1 = [p1[0] - p0[0], p1[1] - p0[1]], e2 = [p2[0] - p1[0], p2[1] - p1[1]];
+      var l = Math.hypot(e1[0], e1[1]) * Math.hypot(e2[0], e2[1]);
+      return !l || (e1[0] * e2[0] + e1[1] * e2[1]) / l < Math.cos(10 * Math.PI / 180);
+    }
+    for (var i = 0; i < n; i++) {
+      var before = wallE[(i - 1 + n) % n], after = wallE[i];
+      if (before !== after || (before && sharp(i))) { keep[i] = true; last = ring[i]; }
+      else if (before && after && (!last || Math.hypot(ring[i][0] - last[0], ring[i][1] - last[1]) >= gap)) { keep[i] = true; last = ring[i]; }
+    }
+    var forced = [];
+    keep.forEach(function (k, i) { if (k) forced.push(i); });
+    // Між сусідніми обов'язковими вершинами: стінку не чіпаємо, внутрішній край — Дуглас — Пекер
+    for (var f = 0; f < forced.length; f++) {
+      var a = forced[f], b = forced[(f + 1) % forced.length];
+      if (b <= a) b += n;
+      if (!wallE[a % n]) dpRange(ring, a, b, tol, keep);
+    }
+    return ring.filter(function (q, i) { return keep[i]; });
+  }
+
+  // Дуглас — Пекер на відрізку індексів a…b кільця (b може бути ≥ n — циклічно)
+  function dpRange(ring, a, b, tol, keep) {
+    var n = ring.length, A = ring[a % n], B = ring[b % n], dx = B[0] - A[0], dy = B[1] - A[1], L2 = dx * dx + dy * dy, far = -1, idx = -1;
+    for (var i = a + 1; i < b; i++) {
+      var q = ring[i % n], t = L2 ? Math.max(0, Math.min(1, ((q[0] - A[0]) * dx + (q[1] - A[1]) * dy) / L2)) : 0;
+      var d = Math.hypot(q[0] - A[0] - t * dx, q[1] - A[1] - t * dy);
+      if (d > far) { far = d; idx = i; }
+    }
+    if (far > tol) { keep[idx % n] = true; dpRange(ring, a, idx, tol, keep); dpRange(ring, idx, b, tol, keep); }
+  }
+
+  // Спрощення кільця без стінки (дірка кільця-полиці): розрізаємо в найдальшій від першої точці
+  function simplifyRing(ring, tol) {
+    if (ring.length < 8) return ring.slice();
+    function dp(pts, a, b, keep) {
+      var ax = pts[a], bx = pts[b], dx = bx[0] - ax[0], dy = bx[1] - ax[1], L2 = dx * dx + dy * dy, far = -1, idx = -1;
+      for (var i = a + 1; i < b; i++) {
+        var t = L2 ? Math.max(0, Math.min(1, ((pts[i][0] - ax[0]) * dx + (pts[i][1] - ax[1]) * dy) / L2)) : 0;
+        var d = Math.hypot(pts[i][0] - ax[0] - t * dx, pts[i][1] - ax[1] - t * dy);
+        if (d > far) { far = d; idx = i; }
+      }
+      if (far > tol) { keep[idx] = true; dp(pts, a, idx, keep); dp(pts, idx, b, keep); }
+    }
+    // Кільце розрізаємо в найдальшій від першої точці: дві половини спрощуємо окремо
+    var far = 0, cut = 0;
+    ring.forEach(function (q, i) { var d = Math.hypot(q[0] - ring[0][0], q[1] - ring[0][1]); if (d > far) { far = d; cut = i; } });
+    var keep = ring.map(function () { return false; });
+    keep[0] = keep[cut] = true;
+    var closed = ring.concat([ring[0]]), k2 = keep.concat([true]);
+    dp(closed, 0, cut, k2); dp(closed, cut, ring.length, k2);
+    return ring.filter(function (q, i) { return k2[i]; });
+  }
+
+  function distToRing(p, ring) {
+    var m = Infinity;
+    for (var i = 0; i < ring.length; i++) {
+      var a = ring[i], b = ring[(i + 1) % ring.length], d = [b[0] - a[0], b[1] - a[1]], L2 = d[0] * d[0] + d[1] * d[1];
+      var t = L2 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * d[0] + (p[1] - a[1]) * d[1]) / L2)) : 0;
+      m = Math.min(m, Math.hypot(p[0] - a[0] - t * d[0], p[1] - a[1] - t * d[1]));
+    }
+    return m;
+  }
+
+  function bbox(poly) {
+    var b = [Infinity, Infinity, -Infinity, -Infinity];
+    poly.forEach(function (q) { b[0] = Math.min(b[0], q[0]); b[1] = Math.min(b[1], q[1]); b[2] = Math.max(b[2], q[0]); b[3] = Math.max(b[3], q[1]); });
+    return b;
+  }
+
+  /*
+   * p = { shape, L, W, D, bio: { L, W, depth } | null, levels: [{ poly, holes, depth }] | undefined }
+   * Котлован (pit): { id, outline, depth, levels } — levels: сходинки { poly, holes, depth, box } у координатах плану
    */
   function buildScene(p) {
-    var pits = [{ id: 'pond', outline: outline(p.shape, p.L, p.W), depth: p.D, levels: [] }];
+    var pond = { id: 'pond', outline: outline(p.shape, p.L, p.W), depth: p.D, levels: [] };
+    var tol = 0.003 * Math.max(p.L, p.W);                     // 3 мм на 1 м розміру: на схемі непомітно
+    (p.levels || []).forEach(function (lv) {
+      if (!(lv.depth > 0 && lv.depth < p.D) || !lv.poly || lv.poly.length < 3) return;
+      var poly = prepLevelRing(lv.poly, pond.outline, tol);
+      pond.levels.push({ poly: poly, holes: (lv.holes || []).map(function (h) { return simplifyRing(h, tol); }), depth: lv.depth, box: bbox(poly) });
+    });
+    var pits = [pond];
     if (p.bio && p.bio.L > 0 && p.bio.W > 0) {
       // Біоплато праворуч від ставка по центру, як у 2D-схемі; проміжок — умовний
       var gap = Math.max(0.5, 0.06 * p.L);
@@ -109,7 +206,11 @@ var PondGeo = (function () {
       var pit = scene.pits[i];
       if (!inside(q, pit.outline)) continue;
       var d = pit.depth;
-      pit.levels.forEach(function (lv) { if (lv.depth < d && inside(q, lv.poly)) d = lv.depth; });
+      pit.levels.forEach(function (lv) {
+        if (!(lv.depth < d)) return;
+        if (lv.box && (q[0] < lv.box[0] || q[0] > lv.box[2] || q[1] < lv.box[1] || q[1] > lv.box[3])) return;
+        if (inside(q, lv.poly) && !(lv.holes || []).some(function (h) { return inside(q, h); })) d = lv.depth;
+      });
       return -d;
     }
     return 0;
@@ -123,7 +224,7 @@ var PondGeo = (function () {
     }
     scene.pits.forEach(function (pit) {
       add(pit.outline);
-      pit.levels.forEach(function (lv) { add(lv.poly); });
+      pit.levels.forEach(function (lv) { add(lv.poly); (lv.holes || []).forEach(add); });
     });
     return edges;
   }
@@ -184,14 +285,113 @@ var PondGeo = (function () {
 
   // ---------- Лінії креслення ----------
 
+  // Перетин відрізків ab і cd: параметр t на ab (0…1) або null
+  function segCross(a, b, c, d) {
+    var r = [b[0] - a[0], b[1] - a[1]], q = [d[0] - c[0], d[1] - c[1]], den = cross(r, q);
+    if (Math.abs(den) < 1e-12) return null;
+    var ac = [c[0] - a[0], c[1] - a[1]], t = cross(ac, q) / den, u = cross(ac, r) / den;
+    return t > 1e-9 && t < 1 - 1e-9 && u >= -1e-9 && u <= 1 + 1e-9 ? t : null;
+  }
+
+  /*
+   * Статична геометрія сходинок (не залежить від кута огляду, рахуємо раз на сцену).
+   * Кожну межу (стінку котлована і край кожної сходинки) ріжемо в точках перетину з іншими межами.
+   * На кожному шматку «пробуємо» поверхню по обидва боки: якщо висоти різні — тут вертикальний підйом:
+   *   верх підйому — лінія краю сходинки (kind 'step'), низ — лінія стику з нижчою поверхнею (kind 'floor').
+   * Так перекриття шарів (D33) враховується саме собою: край під мілкішим шаром не малюється.
+   * Вершини — кандидати на вертикальні ребра: стик краю зі стінкою, гострий поворот, силует (залежить від кута).
+   */
+  function levelGeometry(scene) {
+    if (scene._lv) return scene._lv;
+    var geo = { lines: [], verts: [] };
+    scene.pits.forEach(function (pit) {
+      if (!pit.levels.length || !(pit.depth > 0)) return;
+      var size = Math.max.apply(null, bbox(pit.outline).map(Math.abs)) || 1;
+      var eps = 2e-3 * size, wallTol = 1e-6 + 2e-3 * size;
+      var z = function (q) { return groundAt(scene, q); };
+      var chains = [{ ring: pit.outline, outline: true }];
+      pit.levels.forEach(function (lv) { [lv.poly].concat(lv.holes || []).forEach(function (r) { chains.push({ ring: r, outline: false }); }); });
+      var segs = [];
+      chains.forEach(function (c) { c.ring.forEach(function (a, i) { segs.push([a, c.ring[(i + 1) % c.ring.length]]); }); });
+      var onWall = function (q) { return distToRing(q, pit.outline) < wallTol; };
+      function probe(q, n) { return [z([q[0] + n[0] * eps, q[1] + n[1] * eps]), z([q[0] - n[0] * eps, q[1] - n[1] * eps])]; }
+      function normal(a, b) { var l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; return [-(b[1] - a[1]) / l, (b[0] - a[0]) / l]; }
+
+      chains.forEach(function (c) {
+        var ring = c.ring, n = ring.length, cur = { step: null, floor: null };
+        function flush(k) { if (cur[k] && cur[k].pts.length > 1) geo.lines.push(cur[k]); cur[k] = null; }
+        function put(k, a, b, zz) {
+          var line = cur[k], last = line && line.pts[line.pts.length - 1];
+          if (line && line.z === zz && Math.hypot(last[0] - a[0], last[1] - a[1]) < 1e-9) { line.pts.push([b[0], b[1], zz]); return; }
+          flush(k);
+          cur[k] = { pit: pit.id, kind: k, closed: false, z: zz, pts: [[a[0], a[1], zz], [b[0], b[1], zz]] };
+        }
+        var wallEdge = ring.map(function (a, i) {
+          var b = ring[(i + 1) % n];
+          return !c.outline && onWall([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
+        });
+        for (var i = 0; i < n; i++) {
+          var a = ring[i], b = ring[(i + 1) % n];
+          if (wallEdge[i]) { flush('step'); flush('floor'); continue; }  // край сходинки по стінці = сама стінка
+          var ts = [0, 1];
+          segs.forEach(function (sg) { var t = segCross(a, b, sg[0], sg[1]); if (t !== null) ts.push(t); });
+          ts.sort(function (x, y) { return x - y; });
+          var nr = normal(a, b);
+          for (var k = 0; k + 1 < ts.length; k++) {
+            if (ts[k + 1] - ts[k] < 1e-9) continue;
+            var pa = [a[0] + (b[0] - a[0]) * ts[k], a[1] + (b[1] - a[1]) * ts[k]];
+            var pb = [a[0] + (b[0] - a[0]) * ts[k + 1], a[1] + (b[1] - a[1]) * ts[k + 1]];
+            var zs = probe([(pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2], nr);
+            var flat = Math.abs(zs[0] - zs[1]) < 1e-9;
+            // Край сходинки впритул до стінки: одна проба вже на землі — це стінка, а не підйом
+            if (flat || (!c.outline && Math.max(zs[0], zs[1]) > -1e-9)) { flush('step'); flush('floor'); continue; }
+            if (!c.outline) put('step', pa, pb, Math.max(zs[0], zs[1])); // верх стінки котлована — це край (rim)
+            put('floor', pa, pb, Math.min(zs[0], zs[1]));
+          }
+        }
+        flush('step'); flush('floor');
+
+        // Вершини країв сходинок: вертикальні ребра підйому
+        if (c.outline) return;
+        for (var j = 0; j < n; j++) {
+          var prevWall = wallEdge[(j - 1 + n) % n], nextWall = wallEdge[j];
+          if (prevWall && nextWall) continue;
+          var v = ring[j], pv = ring[(j - 1 + n) % n], nx = ring[(j + 1) % n];
+          var n1 = normal(pv, v), n2 = normal(v, nx), zs2;
+          var junction = prevWall !== nextWall;                    // край сходинки впирається в стінку
+          if (junction) {
+            // пробуємо трохи вздовж краю від стінки, по обидва боки краю
+            var o = prevWall ? nx : pv, l = Math.hypot(o[0] - v[0], o[1] - v[1]) || 1;
+            var q = [v[0] + (o[0] - v[0]) / l * eps, v[1] + (o[1] - v[1]) / l * eps];
+            zs2 = probe(q, prevWall ? n2 : n1);
+          } else {
+            var bis = [n1[0] + n2[0], n1[1] + n2[1]], bl = Math.hypot(bis[0], bis[1]);
+            zs2 = bl > 1e-9 ? probe(v, [bis[0] / bl, bis[1] / bl]) : probe(v, n1);
+          }
+          if (Math.abs(zs2[0] - zs2[1]) < 1e-9 || Math.max(zs2[0], zs2[1]) > -1e-9) continue;
+          var e1 = [v[0] - pv[0], v[1] - pv[1]], e2 = [nx[0] - v[0], nx[1] - v[1]];
+          var cosTurn = (e1[0] * e2[0] + e1[1] * e2[1]) / ((Math.hypot(e1[0], e1[1]) * Math.hypot(e2[0], e2[1])) || 1);
+          geo.verts.push({ pit: pit.id, p: v, zt: Math.max(zs2[0], zs2[1]), zb: Math.min(zs2[0], zs2[1]),
+                           fixed: junction || cosTurn < Math.cos(SHARP_TURN_DEG * Math.PI / 180), n1: n1, n2: n2 });
+        }
+      });
+    });
+    scene._lv = geo;
+    return geo;
+  }
+
   // Ребра котлованів у 3D: край (земля), контур дна, вертикальні ребра
   function sceneLines(scene, cam) {
     var lines = [];
+    var geo = levelGeometry(scene);
     scene.pits.forEach(function (pit) {
-      var o = pit.outline, n = o.length, D = pit.depth;
+      var o = pit.outline, n = o.length, D = pit.depth, stepped = pit.levels.length > 0;
       lines.push({ pit: pit.id, kind: 'rim', closed: true, pts: o.map(function (p) { return [p[0], p[1], 0]; }) });
       if (!(D > 0)) return;
-      lines.push({ pit: pit.id, kind: 'floor', closed: true, pts: o.map(function (p) { return [p[0], p[1], -D]; }) });
+      if (!stepped) lines.push({ pit: pit.id, kind: 'floor', closed: true, pts: o.map(function (p) { return [p[0], p[1], -D]; }) });
+      // Зі сходинками низ стінки йде на висоті поверхні під нею — шматки з levelGeometry
+      var cen = [0, 0];
+      o.forEach(function (p) { cen[0] += p[0] / n; cen[1] += p[1] / n; });
       for (var i = 0; i < n; i++) {
         var prev = o[(i - 1 + n) % n], cur = o[i], next = o[(i + 1) % n];
         var e1 = [cur[0] - prev[0], cur[1] - prev[1]], e2 = [next[0] - cur[0], next[1] - cur[1]];
@@ -201,9 +401,20 @@ var PondGeo = (function () {
         var s1 = e1[1] * cam.c[0] - e1[0] * cam.c[1], s2 = e2[1] * cam.c[0] - e2[0] * cam.c[1];
         var silhouette = s1 * s2 < 0; // округла стінка тут повертається від глядача
         if (sharp || silhouette) {
-          lines.push({ pit: pit.id, kind: 'edge', closed: false, pts: [[cur[0], cur[1], 0], [cur[0], cur[1], -D]] });
+          var zb = -D;
+          if (stepped) {                                        // низ ребра — поверхня біля кута всередині
+            var dl = Math.hypot(cen[0] - cur[0], cen[1] - cur[1]) || 1, e = 3e-3 * Math.max(Math.abs(cur[0]), Math.abs(cur[1]), 1);
+            zb = groundAt(scene, [cur[0] + (cen[0] - cur[0]) / dl * e, cur[1] + (cen[1] - cur[1]) / dl * e]);
+          }
+          lines.push({ pit: pit.id, kind: 'edge', closed: false, pts: [[cur[0], cur[1], 0], [cur[0], cur[1], zb]] });
         }
       }
+    });
+    geo.lines.forEach(function (l) { lines.push(l); });
+    // Вертикальні ребра підйомів: стик зі стінкою і гострі кути — завжди; на дугах — лише силует
+    geo.verts.forEach(function (v) {
+      var s1 = v.n1[0] * cam.c[0] + v.n1[1] * cam.c[1], s2 = v.n2[0] * cam.c[0] + v.n2[1] * cam.c[1];
+      if (v.fixed || s1 * s2 < 0) lines.push({ pit: v.pit, kind: 'edge', closed: false, pts: [[v.p[0], v.p[1], v.zt], [v.p[0], v.p[1], v.zb]] });
     });
     return lines;
   }
@@ -225,6 +436,11 @@ var PondGeo = (function () {
       var proj = function (z) { return pit.outline.map(function (p) { return project(cam, p[0], p[1], z); }); };
       out.fills.push({ pit: pit.id, kind: 'rim', pts: proj(0) });
       if (pit.depth > 0) out.fills.push({ pit: pit.id, kind: 'floor', pts: proj(-pit.depth) });
+      // Поверхні сходинок — від глибокої до мілкої: мілкіша малюється зверху
+      pit.levels.slice().sort(function (a, b) { return b.depth - a.depth; }).forEach(function (lv) {
+        var pr = function (r) { return r.map(function (p) { return project(cam, p[0], p[1], -lv.depth); }); };
+        out.fills.push({ pit: pit.id, kind: 'level', depth: lv.depth, pts: pr(lv.poly), holes: (lv.holes || []).map(pr) });
+      });
     });
 
     sceneLines(scene, cam).forEach(function (line) {
@@ -334,7 +550,8 @@ var PondGeo = (function () {
     buildScene: buildScene, groundAt: groundAt,
     camera: camera, project: project, isVisible: isVisible,
     sceneLines: sceneLines, render: render, stableBounds: stableBounds,
-    sceneCenter: sceneCenter, projectedPoints: projectedPoints, convexHull: convexHull
+    sceneCenter: sceneCenter, projectedPoints: projectedPoints, convexHull: convexHull,
+    simplifyRing: simplifyRing, levelGeometry: levelGeometry
   };
 })();
 

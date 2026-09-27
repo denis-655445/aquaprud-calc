@@ -61,19 +61,24 @@ var UI = (function () {
     }
   }
 
-  // Схема ставка зверху в реальних пропорціях + біоплато праворуч
-  function drawSketch(svg, shape, m) {
+  /*
+   * Схема ставка зверху в реальних пропорціях + біоплато праворуч.
+   * overlay (Про-режим, необов'язково) — у координатах плану, м:
+   *   layers: [{ rings: [[[x, y], …], …], rank, active, error }] — сходинки (rank 0 — наймілкіша);
+   *   points: [{ id, p: [x, y], selected }] — точки активної сходинки, їх натискають (data-point).
+   */
+  function drawSketch(svg, shape, m, overlay) {
     var NS = 'http://www.w3.org/2000/svg';
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     // Згори — смуга 40 px під перемикач 2D/3D; поле малювання те саме, що й раніше (320 × 150)
     var PAD_TOP = 40;
     svg.setAttribute('viewBox', '0 0 320 ' + (150 + PAD_TOP));
 
-    function node(tag, attrs, text) {
+    function node(tag, attrs, text, parent) {
       var n = document.createElementNS(NS, tag);
       Object.keys(attrs).forEach(function (k) { n.setAttribute(k, attrs[k]); });
       if (text) n.textContent = text;
-      svg.appendChild(n);
+      (parent || svg).appendChild(n);
       return n;
     }
 
@@ -81,10 +86,12 @@ var UI = (function () {
       node('text', { x: 160, y: 80 + PAD_TOP, 'text-anchor': 'middle', 'class': 'sk-hint' }, 'Тут з\'явиться схема ставка');
       return;
     }
+    var ov = overlay || { layers: [], points: [] };
+    var withPts = ov.points.length > 0;
 
-    // Поле малювання: ліворуч місце під підпис ширини, знизу — під підпис довжини
-    var left = 44, right = 10, top = 8 + PAD_TOP, bottom = 26, gapPx = 12;
-    var availW = 320 - left - right, availH = 150 - 8 - bottom;
+    // Поле малювання: ліворуч місце під підпис ширини, знизу — під підпис довжини (з точками — трохи більше)
+    var left = withPts ? 50 : 44, right = withPts ? 14 : 10, top = (withPts ? 14 : 8) + PAD_TOP, bottom = withPts ? 32 : 26, gapPx = 12;
+    var availW = 320 - left - right, availH = 150 + PAD_TOP - top - bottom;
     var bioL = m.hasBio ? m.Lb : 0, bioW = m.hasBio ? m.Wb : 0;
     var scale = Math.min((availW - (m.hasBio ? gapPx : 0)) / (m.L + bioL), availH / Math.max(m.W, bioW));
 
@@ -92,6 +99,7 @@ var UI = (function () {
     var totalW = w + (m.hasBio ? gapPx + bioL * scale : 0);
     var x0 = left + (availW - totalW) / 2;
     var y0 = top + (availH - h) / 2;
+    function X(p) { return (x0 + p[0] * scale).toFixed(1) + ' ' + (y0 + p[1] * scale).toFixed(1); }
 
     if (shape === 'oval') {
       node('ellipse', { cx: x0 + w / 2, cy: y0 + h / 2, rx: w / 2, ry: h / 2, 'class': 'sk-water' });
@@ -103,11 +111,18 @@ var UI = (function () {
       node('rect', { x: x0, y: y0, width: w, height: h, rx: 3, ry: 3, 'class': 'sk-water' });
     }
 
+    // Сходинки: від глибокої до мілкої — мілкіша лягає зверху (у спільній зоні діє вона, D33)
+    ov.layers.slice().sort(function (a, b) { return b.rank - a.rank; }).forEach(function (l) {
+      var d = l.rings.map(function (ring) { return 'M' + ring.map(X).join('L') + 'Z'; }).join('');
+      node('path', { d: d, 'fill-rule': 'evenodd', 'fill-opacity': [0.5, 0.34, 0.22][Math.min(2, l.rank)],
+        'class': 'sk-step' + (l.active ? ' is-active' : '') + (l.error ? ' is-error' : '') });
+    });
+
     // Підписи розмірів
-    node('text', { x: x0 + w / 2, y: y0 + h + 17, 'text-anchor': 'middle', 'class': 'sk-label' }, Format.qty(m.L) + ' м');
-    node('text', { x: x0 - 6, y: y0 + h / 2 + 4, 'text-anchor': 'end', 'class': 'sk-label' }, Format.qty(m.W) + ' м');
-    // Глибину пишемо всередині, лише якщо вона введена і текст вміщується
-    if (m.D > 0 && w > 92 && h > 22) {
+    node('text', { x: x0 + w / 2, y: y0 + h + (withPts ? 24 : 17), 'text-anchor': 'middle', 'class': 'sk-label' }, Format.qty(m.L) + ' м');
+    node('text', { x: x0 - (withPts ? 14 : 6), y: y0 + h / 2 + 4, 'text-anchor': 'end', 'class': 'sk-label' }, Format.qty(m.W) + ' м');
+    // Глибину пишемо всередині, лише якщо вона введена, текст вміщується і немає сходинок
+    if (m.D > 0 && w > 92 && h > 22 && !ov.layers.length) {
       node('text', { x: x0 + w / 2, y: y0 + h / 2 + 4, 'text-anchor': 'middle', 'class': 'sk-label sk-label--in' },
         'глибина ' + Format.qty(m.D) + ' м');
     }
@@ -118,6 +133,16 @@ var UI = (function () {
       node('rect', { x: bx, y: by, width: bw, height: bh, rx: 2, ry: 2, 'class': 'sk-bio' });
       node('text', { x: bx + bw / 2, y: by + bh + 17, 'text-anchor': 'middle', 'class': 'sk-label' }, bw > 56 ? 'біоплато' : 'біо');
     }
+
+    // Точки активної сходинки: номер у кружечку; прозоре коло більшого радіуса — зона дотику для пальця
+    ov.points.forEach(function (pt) {
+      var cx = x0 + pt.p[0] * scale, cy = y0 + pt.p[1] * scale;
+      var g = node('g', { 'class': 'sk-pt' + (pt.selected ? ' is-on' : ''), 'data-point': pt.id, role: 'button',
+        'aria-label': 'Точка ' + pt.id + (pt.selected ? ', обрано' : '') });
+      node('circle', { cx: cx, cy: cy, r: 16, 'class': 'sk-pt__hit' }, null, g);
+      node('circle', { cx: cx, cy: cy, r: 8.5, 'class': 'sk-pt__dot' }, null, g);
+      node('text', { x: cx, y: cy + 3.5, 'text-anchor': 'middle', 'class': 'sk-pt__num' }, String(pt.id), g);
+    });
   }
 
   // Три показники під полями: площа, об'єм, плівка

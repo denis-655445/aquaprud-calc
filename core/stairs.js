@@ -580,7 +580,10 @@ var Stairs = (function () {
       var type = st.type === 'platform' || st.type === 'corner' ? st.type : 'shelf';
       var scheme = schemeFor(type), pond = pondFor(scheme);
       var h = num(st.depth_cm, 0) / 100;
-      var r = type === 'shelf' ? shelf(pond, st, opts)
+      // Порожня ширина полиці = ширина за замовчуванням з «Налаштувань» (поле очистили під час введення)
+      var shelfStep = { points: st.points, edge: st.edge, we: st.we,
+                        wc: st.wc === undefined || st.wc === null || String(st.wc).trim() === '' ? setting(settings, 'shelf_width_default_m') : st.wc };
+      var r = type === 'shelf' ? shelf(pond, shelfStep, opts)
         : type === 'platform' ? platform(pond, { points: st.points, edge: st.edge, arcK: setting(settings, 'platform_arc_k') }, opts)
         : cornerRect(pond, st);
       var errs = r.errors.slice(), warns = r.warnings.slice();

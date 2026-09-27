@@ -14,7 +14,8 @@
   var state = defaultState();
   // null = значення з «Налаштувань»; fontScale — розмір тексту (1 / 1.15 / 1.3), не скидається «Новим кошторисом»
   // scene — вид схеми: '2d' / '3d' і номер ракурсу 0–3 (теж не скидається)
-  var service = { labor_pct: null, markup_pct: null, hidePrices: false, fontScale: 1, scene: { mode: '2d', view: 0 } };
+  // pro — Про-режим зі сходинками (D46): вмикається в службовій панелі й не скидається «Новим кошторисом»
+  var service = { labor_pct: null, markup_pct: null, hidePrices: false, fontScale: 1, scene: { mode: '2d', view: 0 }, pro: false };
   var FONT_SCALES = [1, 1.15, 1.3];
   var lastEst = null;
   var lastMetrics = null;  // метрики останнього розрахунку — для перемальовування схеми під час повороту
@@ -31,7 +32,9 @@
   // Порожній кошторис. manual: null = автопідбір (рекомендоване)
   function defaultState() {
     return {
-      inputs: { shape: 'rect', L: '', W: '', D: '', fish: false, bio: false, Lb: '', Wb: '', filmId: '', distance: '', lift: '' },
+      // steps — сходинки (Про-режим): рівнів = steps.length + 1 (дно), D38
+      inputs: { shape: 'rect', L: '', W: '', D: '', fish: false, bio: false, Lb: '', Wb: '', filmId: '', distance: '', lift: '', steps: [] },
+      stepActive: 0,     // яку сходинку редагуємо (її точки — на 2D-схемі)
       manual: { filterId: null, pumpId: null, uvId: null, skimmers: null, drains: null },
       decor: { waterfallId: 'none', lightId: 'none', lights: 0, extras: {} },
       client: { name: '', phone: '', phoneCountry: 'UA', address: '' },
@@ -124,7 +127,20 @@
     if (state.decor.waterfallId !== 'none' && !exists(state.decor.waterfallId)) state.decor.waterfallId = 'none';
     if (state.decor.lightId !== 'none' && !exists(state.decor.lightId)) state.decor.lightId = 'none';
     Object.keys(state.decor.extras).forEach(function (id) { if (!exists(id)) delete state.decor.extras[id]; });
+    // Сходинки з чернетки: лише масив об'єктів і не більше за steps_max
+    service.pro = !!service.pro;
+    var steps = Array.isArray(state.inputs.steps) ? state.inputs.steps : [];
+    state.inputs.steps = steps.filter(function (st) { return st && typeof st === 'object'; }).slice(0, stepsMax()).map(function (st) {
+      return { type: ['shelf', 'platform', 'corner'].indexOf(st.type) === -1 ? 'shelf' : st.type,
+               edge: st.edge === 'round' ? 'round' : 'straight',
+               points: Array.isArray(st.points) ? st.points.map(Number).filter(function (x) { return x >= 1 && x <= 8; }) : [],
+               wc: str(st.wc), we: str(st.we), a: str(st.a), b: str(st.b), depth_cm: str(st.depth_cm) };
+    });
+    state.stepActive = Math.max(0, Math.min(Number(state.stepActive) || 0, state.inputs.steps.length - 1));
   }
+
+  function str(v) { return v === undefined || v === null ? '' : String(v); }
+  function stepsMax() { return Math.max(1, Math.round(Calc.num(catalog.settings.steps_max, 3))); }
 
   // ---------- Побудова форми з прайсу ----------
   function buildForm() {
@@ -201,14 +217,22 @@
       : { key: key, auto: true, recSuffix: ': ' + recValue });
   }
 
+  // Параметри для ядра: сходинки враховуємо лише в Про-режимі (вимкнений режим не видаляє введене)
+  function calcInputs() {
+    var inp = Object.assign({}, state.inputs);
+    inp.steps = service.pro ? state.inputs.steps : [];
+    return inp;
+  }
+
   function recalc() {
-    var inp = state.inputs;
+    var inp = calcInputs();
     var man = state.manual;
     var valid = Calc.isValidInputs(inp);
     var rec = Calc.recommend(inp, catalog, man.filterId);
     var m = rec.metrics;
 
     lastMetrics = m;
+    syncSteps();
     drawScene();
 
     // Остаточний вибір: ручний має пріоритет над рекомендованим
@@ -296,6 +320,262 @@
     $('lightsCounter').querySelectorAll('button').forEach(function (b) { b.disabled = off; });
   }
 
+  // ---------- Сходинки (Про-режим, A2.1) ----------
+  // Логіка: лічильник «Рівні» (дно + сходинки, D38) → вкладки сходинок → тип, край, розміри, глибина;
+  // точки активної сходинки натискають на 2D-схемі. Уся математика — у core/stairs.js.
+
+  function activeStep() { return state.inputs.steps[state.stepActive] || null; }
+  function dimsOk(m) { return !!m && m.L > 0 && m.W > 0 && m.D > 0; }
+  function shapeOk() { return state.inputs.shape === 'rect' || state.inputs.shape === 'oval'; }
+  function plural(n, one, few, many) {
+    var d = n % 10, dd = n % 100;
+    return d === 1 && dd !== 11 ? one : (d >= 2 && d <= 4 && (dd < 10 || dd >= 20) ? few : many);
+  }
+
+  // Глибина нової сходинки: k-те значення з «Налаштувань» (20 / 45 / 60 см), а якщо воно ≥ глибини ставка — рівний поділ
+  function defaultDepthCm(k, levels) {
+    var D = Calc.num(state.inputs.D), list = Stairs.defaultDepthsCm(catalog.settings), d = list[k];
+    if (D > 0 && !(d > 0 && d < D * 100)) d = Stairs.splitDepthsCm(D, levels)[k];
+    return d > 0 ? String(d) : String(20 * (k + 1));
+  }
+
+  function newStep(k, levels) {
+    return { type: 'shelf', edge: 'straight', points: [],
+             wc: Format.qty(Calc.num(catalog.settings.shelf_width_default_m, 0.4)), we: '', a: '1', b: '1',
+             depth_cm: defaultDepthCm(k, levels) };
+  }
+
+  // Лічильник рівнів: + додає сходинку в кінець і робить її активною, − прибирає останню
+  function setLevels(n) {
+    var steps = state.inputs.steps, N = Math.max(1, Math.min(stepsMax() + 1, n));
+    var added = N - 1 > steps.length;
+    while (steps.length < N - 1) steps.push(newStep(steps.length, N));
+    steps.length = N - 1;
+    state.stepActive = added ? steps.length - 1 : Math.max(0, Math.min(state.stepActive, steps.length - 1));
+  }
+
+  // Модель ставка для схеми точок активної сходинки (null — розмірів ще немає)
+  function stepPond(type) {
+    var m = lastMetrics;
+    if (!dimsOk(m) || !shapeOk()) return null;
+    return Stairs.buildPond(state.inputs.shape, m.L, m.W, Stairs.schemeFor(type));
+  }
+
+  // Зміна типу: лишаємо лише точки, що є в новій схемі (8 ↔ 6 точок, D32); «від кута» — один кут
+  function setStepType(st, type) {
+    st.type = type;
+    var pond = stepPond(type);
+    st.points = st.points.filter(function (id) { return pond ? !!pond.pts[id] : id <= 6; });
+    if (type === 'corner') {
+      st.points = st.points.filter(function (id) { return pond && pond.pts[id] && pond.pts[id].corner; }).slice(0, 1);
+    }
+  }
+
+  function togglePoint(id) {
+    var st = activeStep();
+    if (!st) return;
+    if (st.type === 'corner') st.points = [id];                   // кут — лише один
+    else {
+      var i = st.points.indexOf(id);
+      if (i === -1) st.points.push(id); else st.points.splice(i, 1);
+    }
+    haptic('select');
+    changed();
+  }
+
+  // Точки й шари для 2D-схеми (координати плану, як ввів майстер)
+  function sketchOverlay(m) {
+    var ov = { layers: [], points: [] };
+    if (!service.pro || !m.steps || !m.steps.available) return ov;
+    var depths = m.steps.layers.map(function (l) { return l.depth; })
+      .filter(function (d, i, a) { return a.indexOf(d) === i; }).sort(function (a, b) { return a - b; });
+    m.steps.layers.forEach(function (l, k) {
+      if (!l.rings.length) return;
+      ov.layers.push({ rings: l.rings.map(function (r) { return r.map(function (p) { return Stairs.toPlan(p, l.pond); }); }),
+                       rank: depths.indexOf(l.depth), active: k === state.stepActive, error: !l.valid });
+    });
+    var st = activeStep(), pond = st ? stepPond(st.type) : null;
+    if (pond && !(st.type === 'corner' && pond.kind !== 'rect')) {
+      pond.order.forEach(function (id) {
+        var P = pond.pts[id];
+        if (st.type === 'corner' && !P.corner) return;              // «від кута»: підсвічуємо лише 4 кути (D37)
+        ov.points.push({ id: id, p: Stairs.toPlan(P.p, pond), selected: st.points.indexOf(id) !== -1 });
+      });
+    }
+    return ov;
+  }
+
+  // Рівні для 3D: многокутники сходинок з глибинами (кільце — з діркою).
+  // Той самий масив, поки розрахунок не змінився, — sketch3d.js тоді не перебудовує сцену на кожен кадр повороту
+  var levelsMemo = { steps: undefined, pro: null, value: [] };
+  function sceneLevels(m) {
+    if (levelsMemo.steps === m.steps && levelsMemo.pro === service.pro) return levelsMemo.value;
+    var out = [];
+    levelsMemo = { steps: m.steps, pro: service.pro, value: out };
+    if (!service.pro || !m.steps || !m.steps.available) return out;
+    m.steps.layers.forEach(function (l) {
+      if (!l.valid) return;
+      l.parts.forEach(function (part) {
+        var rings = part.rings.map(function (r) { return r.map(function (p) { return Stairs.toPlan(p, l.pond); }); });
+        out.push({ poly: rings[0], holes: rings.slice(1), depth: l.depth });
+      });
+    });
+    return out;
+  }
+
+  function setVal(id, v) { var el = $(id); if (document.activeElement !== el) el.value = v; }
+
+  // Перемальовує редактор сходинок за станом і останнім розрахунком
+  function syncSteps() {
+    $('proSteps').checked = !!service.pro;
+    $('stepsBox').hidden = !service.pro;
+    if (!service.pro) return;
+    var m = lastMetrics, steps = state.inputs.steps, N = steps.length + 1, max = stepsMax() + 1;
+    $('levels').textContent = N;
+    $('levelsCounter').classList.toggle('is-off', N === 1);
+    $('levelsHint').textContent = N === 1 ? '(лише дно)' : '(дно + ' + (N - 1) + ' ' + plural(N - 1, 'сходинка', 'сходинки', 'сходинок') + ')';
+    document.querySelector('[data-levels="-1"]').disabled = N <= 1 || !shapeOk();
+    document.querySelector('[data-levels="1"]').disabled = N >= max || !shapeOk();
+
+    var note = !shapeOk() ? 'Сходинки — лише для прямокутного й овального ставка.'
+      : (N > 1 && !dimsOk(m) ? 'Введіть довжину, ширину й глибину — на схемі з\'являться точки.' : '');
+    $('stepsUnavailable').textContent = note;
+    $('stepsUnavailable').hidden = !note;
+    $('stepEditor').hidden = !shapeOk() || N === 1;
+    if ($('stepEditor').hidden) return;
+
+    var layers = m && m.steps && m.steps.available ? m.steps.layers : [];
+    // Вкладки: номер і глибина; сходинка з помилкою — червоним
+    var tabs = $('stepTabs');
+    tabs.innerHTML = '';
+    steps.forEach(function (st, k) {
+      // Коротко «1 · 20 см»: три вкладки вміщаються в один рядок на телефоні
+      var b = UI.el('button', 'seg__btn' + (layers[k] && !layers[k].valid ? ' is-error' : ''),
+        (k + 1) + ' · ' + (st.depth_cm || '—') + ' см');
+      b.type = 'button';
+      b.setAttribute('aria-label', 'Сходинка ' + (k + 1) + ', глибина ' + (st.depth_cm || 'не задана') + ' см' +
+        (layers[k] && !layers[k].valid ? ', є помилка' : ''));
+      b.dataset.steptab = k;
+      b.setAttribute('aria-pressed', String(k === state.stepActive));
+      tabs.appendChild(b);
+    });
+
+    var st = activeStep(), layer = layers[state.stepActive], isRect = state.inputs.shape === 'rect';
+    document.querySelectorAll('[data-steptype]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.steptype === st.type)); });
+    document.querySelectorAll('[data-stepedge]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.stepedge === st.edge)); });
+    $('stepEdgeSeg').hidden = st.type === 'corner';
+
+    // Поля: полиця — ширини (на кінцях — лише для прямокутника, §2.2); «від кута» — довжина й ширина
+    var shelf = st.type === 'shelf', corner = st.type === 'corner';
+    $('fWc').hidden = !shelf;
+    $('fWe').hidden = !(shelf && isRect);
+    $('fA').hidden = !corner;
+    $('fB').hidden = !corner;
+    $('fWcLabel').textContent = shelf && isRect ? 'По центру, м' : 'Ширина, м';
+    setVal('stepWc', st.wc); setVal('stepWe', st.we); setVal('stepA', st.a); setVal('stepB', st.b); setVal('stepDepth', st.depth_cm);
+    $('stepWe').placeholder = st.edge === 'straight' ? (st.wc || '—') : '0';
+
+    // Підказка: що натиснути на схемі
+    var pts = st.points.slice().sort(function (a, b) { return a - b; }).map(function (id) { return '#' + id; }).join(', ');
+    var hint = corner && !isRect ? '«Від кута» — лише для прямокутного ставка.'
+      : corner ? (pts ? 'Кут ' + pts + '. ' : 'Натисніть кут на схемі. ') + 'Довжина — вздовж довшої стінки.'
+      : pts ? 'Обрано: ' + pts
+      : shelf ? 'Натисніть на схемі точки вздовж стінки — щонайменше 2.'
+      : 'Натисніть на схемі точки мілкої зони — платформу відріже пряма або дуга.';
+    if (service.scene.mode === '3d' && !(corner && !isRect)) hint = 'Точки обирають на 2D-схемі. ' + hint;
+    $('stepHint').textContent = hint;
+
+    // Результат: площа, видима площа, вид; для округлих — радіус і хорда (розмітка шнуром, §7.5)
+    var res = $('stepResult');
+    res.innerHTML = '';
+    if (layer && layer.valid) {
+      var t = 'Площа ' + Format.qty(layer.area) + ' м²';
+      if (layer.visible < layer.area - 0.05) t += ', видима ' + Format.qty(layer.visible) + ' м²';
+      if (layer.kind) t += ' · ' + layer.kind;
+      if (layer.R) t += ' · R ' + Format.number(layer.R, 2) + ' м, хорда ' + Format.number(layer.chord, 2) + ' м';
+      res.appendChild(document.createTextNode(t));
+    }
+    if (m && m.steps && m.steps.available) {
+      res.appendChild(UI.el('span', null, 'Глибока зона ' + Format.qty(m.steps.Sdeep) + ' м² (' + Math.round(m.steps.deepShare * 100) + '%)'));
+    }
+
+    // Помилки активної сходинки — червоним; попередження — сірим (загальні теж)
+    var ul = $('stepIssues');
+    ul.innerHTML = '';
+    if (layer) {
+      layer.errors.forEach(function (c) { ul.appendChild(UI.el('li', null, Stairs.TEXT[c])); });
+      layer.warnings.forEach(function (c) { ul.appendChild(UI.el('li', 'is-warn', Stairs.TEXT[c])); });
+    }
+    if (m && m.steps) m.steps.warnings.forEach(function (w) { if (!w.step) ul.appendChild(UI.el('li', 'is-warn', w.text)); });
+  }
+
+  // Редагування сходинки: схема перемикається на 2D, бо точки натискають саме там
+  function toSketch2d() {
+    if (service.scene.mode === '3d') { service.scene.mode = '2d'; sceneAz = null; }
+  }
+
+  function bindSteps() {
+    $('proSteps').addEventListener('change', function (e) { service.pro = e.target.checked; haptic('select'); changed(); });
+    document.querySelectorAll('[data-levels]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        setLevels(state.inputs.steps.length + 1 + Number(b.dataset.levels));
+        if (Number(b.dataset.levels) > 0) toSketch2d();
+        haptic('select');
+        changed();
+      });
+    });
+    $('stepTabs').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-steptab]');
+      if (!b) return;
+      state.stepActive = Number(b.dataset.steptab);
+      toSketch2d();
+      haptic('select');
+      changed();
+    });
+    document.querySelectorAll('[data-steptype]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var st = activeStep();
+        if (!st) return;
+        setStepType(st, b.dataset.steptype);
+        toSketch2d();
+        haptic('select');
+        changed();
+      });
+    });
+    document.querySelectorAll('[data-stepedge]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var st = activeStep();
+        if (!st) return;
+        st.edge = b.dataset.stepedge;
+        haptic('select');
+        changed();
+      });
+    });
+    [['stepWc', 'wc'], ['stepWe', 'we'], ['stepA', 'a'], ['stepB', 'b'], ['stepDepth', 'depth_cm']].forEach(function (p) {
+      $(p[0]).addEventListener('input', function (e) {
+        var st = activeStep();
+        if (!st) return;
+        st[p[1]] = e.target.value;
+        changed();
+      });
+    });
+    // «Поділити порівну» (D34): D·k/N, N — рівні з дном
+    $('splitDepths').addEventListener('click', function () {
+      var D = Calc.num(state.inputs.D), steps = state.inputs.steps;
+      if (!(D > 0)) { alertMsg('Спершу введіть глибину ставка.'); return; }
+      var split = Stairs.splitDepthsCm(D, steps.length + 1);
+      steps.forEach(function (st, k) { st.depth_cm = String(split[k]); });
+      haptic('select');
+      changed();
+    });
+    // Натискання на точку 2D-схеми (кружечки створюються під час малювання — ловимо на самому SVG)
+    $('sketch').addEventListener('click', function (e) {
+      if (!service.pro || service.scene.mode !== '2d') return;
+      var g = e.target.closest && e.target.closest('[data-point]');
+      if (g) togglePoint(Number(g.getAttribute('data-point')));
+    });
+  }
+
   // ---------- 3. Схема ставка: 2D / 3D ----------
   // Висота видимої області: у Telegram — стабільна висота Mini App, у браузері — висота вікна
   function viewportHeight() {
@@ -334,7 +614,7 @@
     $('sketch').setAttribute('aria-label', is3d ? 'Схема ставка в 3D, ракурс ' + (service.scene.view + 1) + ' з 4' : 'Схема ставка, вид зверху');
     var dims = m.L > 0 && m.W > 0 && m.D > 0;
     $('sceneCaption').hidden = !(is3d && dims);
-    if (!is3d) { UI.drawSketch($('sketch'), state.inputs.shape, m); return; }
+    if (!is3d) { UI.drawSketch($('sketch'), state.inputs.shape, m, sketchOverlay(m)); return; }
 
     if (sceneAz === null) sceneAz = VIEW_AZ[service.scene.view];
     $('sceneDots').querySelectorAll('i').forEach(function (d, i) { d.classList.toggle('is-on', i === service.scene.view); });
@@ -352,6 +632,7 @@
     Sketch3D.draw($('sketch'), {
       shape: state.inputs.shape, L: m.L, W: m.W, D: m.D,
       bio: m.hasBio ? { L: m.Lb, W: m.Wb, depth: bioDepth } : null,
+      levels: sceneLevels(m), fast: !!fromAnim,
       azimuth: sceneAz, views: VIEW_AZ,
       box: sceneBox.box, avoid: sceneBox.avoid, fs: Number(service.fontScale) || 1
     });
@@ -390,6 +671,7 @@
         service.scene.mode = b.dataset.scene;
         haptic('select');
         saveDraft();
+        syncSteps();
         drawScene();
       });
     });
@@ -441,7 +723,7 @@
 
   // ---------- Дії ----------
   function estimateText() {
-    return Format.estimateText(lastEst, state.inputs, {
+    return Format.estimateText(lastEst, calcInputs(), {
       client: state.client, clientComment: state.clientComment, // коментар «для себе» не передаємо
       currency: catalog.settings.currency, isTest: !!catalog.is_test, date: new Date()
     });
@@ -614,6 +896,7 @@
     bindPhone();
     bindKeyboard();
     bindScene();
+    bindSteps();
 
     // Службова панель: довге натискання на весь блок заголовка
     bindLongPress(document.querySelector('.head'), openService);
