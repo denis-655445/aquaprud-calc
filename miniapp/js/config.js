@@ -3,10 +3,10 @@
  * Файл публічний (GitHub Pages), тому тут НІКОЛИ не буває токенів і ключів.
  */
 var CONFIG = {
-  APP_VERSION: '0.9.0',
+  APP_VERSION: '0.9.1',
   // Адреса бекенду: URL веб-застосунку Apps Script, що закінчується на /exec (етап A3, README).
   // Порожньо або застосунок відкрито поза Telegram = тестовий каталог з data/catalog.sample.js
-  API_BASE: 'https://script.google.com/macros/s/AKfycbw7sBJUOiT294PsFgELToEwTHSG_oQ-tTnYvHPgiIJcqtHjJA-KvPC7mtk2tMGaJ99g/exec',
+  API_BASE: '',
   // Ключ чернетки в пам'яті телефона: введене не зникне, якщо застосунок закрився
   DRAFT_KEY: 'aquaprud_draft_v1',
   // Архів кошторисів у телефоні (v0.9.0): 10 останніх; ті, що чекають запису в таблицю, не видаляються

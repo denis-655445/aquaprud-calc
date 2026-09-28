@@ -10,9 +10,9 @@ var CatalogTests = (function () {
   function cases(Cat, Calc, sheet) {
     var cat = Cat.fromSheets(sheet.price, sheet.settings);
     return [
-      ['Шаблон v1: 43 позиції, 33 налаштування, числа — числа, тестові ціни помічено, без попереджень', function () {
+      ['Шаблон v1: 43 позиції, 31 налаштування, числа — числа, тестові ціни помічено, без попереджень', function () {
         var flt = cat.items[0];
-        return cat.items.length === 43 && Object.keys(cat.settings).length === 33 && cat.warnings.length === 0 &&
+        return cat.items.length === 43 && Object.keys(cat.settings).length === 31 && cat.warnings.length === 0 &&
           flt.id === 'FLT-T10' && flt.price === 8000 && flt.maxV_fish === 5 && flt.pump_kit === 'PMP-T3' &&
           flt.active === true && flt.base === undefined && !('примітка' in flt) && cat.is_test === true &&
           cat.settings.shelf_depths_cm === '20;45;60' && cat.settings.film_margin_m === 0.5 && /^sheet-[0-9a-f]{8}$/.test(cat.version);

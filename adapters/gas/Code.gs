@@ -4,7 +4,7 @@
  * помилки — в тілі, HTTP завжди 200 (D13).
  * Ядро (Auth, Catalog, Estimate) — копії core/*.js у файлах core_auth.gs, core_catalog.gs, core_estimate.gs.
  */
-var API_VERSION = 'gas-0.9.0';
+var API_VERSION = 'gas-0.9.1';
 
 // Відповідь у форматі JSON
 function json_(obj) {

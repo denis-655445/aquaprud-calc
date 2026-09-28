@@ -156,6 +156,20 @@ var PondGeoTests = (function () {
         var sc = G.buildScene({ shape: 'rect', L: 8, W: 4, D: 1.6, levels: [{ poly: [[0, 0], [2, 0], [2, 4], [0, 4]], depth: 0.25 }] });
         return sc.pits[0].levels[0].poly.length === 4;
       }],
+      // v0.9.1: кінці краю однієї сходинки на краю іншої — вертикальне ребро (скріншот майстра 28.09)
+      ['Рівні: ребро в перетині країв двох сходинок — лише на висоті кута (−0,45…−1,5), не від −0,2', function () {
+        var sc = G.buildScene({ shape: 'rect', L: 6, W: 4, D: 1.5, levels: [
+          { poly: G.rect(0, 0, 6, 1), depth: 0.2 }, { poly: G.rect(0, 0, 3, 2), depth: 0.45 }] });
+        var v = G.levelGeometry(sc).verts.filter(function (x) { return near(x.p[0], 3) && near(x.p[1], 1); });
+        return v.length === 1 && v[0].fixed && near(v[0].zt, -0.45) && near(v[0].zb, -1.5);
+      }],
+      ['Рівні: хорда платформи через полицю — ребра на обох перетинах', function () {
+        var sc = G.buildScene({ shape: 'rect', L: 6, W: 4, D: 1.5, levels: [
+          { poly: [[0, 4], [0, 0], [6, 0], [6, 0.4], [0.4, 0.4], [0.4, 4]], depth: 0.2 }, { poly: [[0, 0], [3, 0], [0, 4]], depth: 0.45 }] });
+        var at = function (x, y) { return G.levelGeometry(sc).verts.filter(function (v) { return v.fixed && Math.hypot(v.p[0] - x, v.p[1] - y) < 1e-6; }); };
+        var a = at(2.7, 0.4), b = at(0.4, 4 - 0.4 * 4 / 3);
+        return a.length === 1 && b.length === 1 && near(a[0].zt, -0.45) && near(a[0].zb, -1.5) && near(b[0].zt, -0.45);
+      }],
       ['Межі сталі для всіх кутів огляду: ширина ≥ діагоналі ставка', function () {
         var b = G.stableBounds(rect, 40);
         return b.maxX - b.minX >= Math.hypot(6, 4) - 1e-6 && b.maxY > b.minY;

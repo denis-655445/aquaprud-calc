@@ -72,6 +72,18 @@ var Estimate = (function () {
     return '';
   }
 
+  /*
+   * v0.9.1: захист від Google-формул у тексті клітинки.
+   *   «+»   на початку → знімаємо ('+380 55 …' → '380 55 …'): телефони зберігаємо без +.
+   *   '= - @' на початку → апостроф (невидимий, але каже Таблиці «це текст, не формула»).
+   */
+  function cellText(v) {
+    if (typeof v !== 'string') return v;
+    if (v.charAt(0) === '+') return v.slice(1);        // телефон: без + (380 55 555 55 55)
+    if (/^[=\-@]/.test(v))   return "'" + v;          // формула/мінус → апостроф
+    return v;
+  }
+
   // Запис → значення рядка за заголовками таблиці; невідома колонка → порожньо
   function toRow(headers, rec) {
     var byHead = {};
@@ -79,7 +91,7 @@ var Estimate = (function () {
     return headers.map(function (h) {
       var k = byHead[trim(h)];
       var v = k ? rec[k] : '';
-      return v === undefined || v === null ? '' : v;
+      return v === undefined || v === null ? '' : cellText(v);
     });
   }
 
@@ -89,9 +101,10 @@ var Estimate = (function () {
     return headers.map(function (h, i) {
       var k = null;
       Object.keys(COLS).forEach(function (key) { if (COLS[key] === trim(h)) k = key; });
-      if (!k) return oldRow[i];                                   // чужі колонки майстра не чіпаємо
-      if (KEEP.indexOf(k) !== -1) return oldRow[i];
-      if (KEEP_IF_EMPTY.indexOf(k) !== -1 && trim(fresh[i]) === '') return oldRow[i];
+      // Старі значення з таблиці (getValues) приходять без апострофа — повертаємо його, інакше «+380 …» знову стане формулою
+      if (!k) return cellText(oldRow[i]);                         // чужі колонки майстра не чіпаємо
+      if (KEEP.indexOf(k) !== -1) return cellText(oldRow[i]);
+      if (KEEP_IF_EMPTY.indexOf(k) !== -1 && trim(fresh[i]) === '') return cellText(oldRow[i]);
       return fresh[i];
     });
   }
@@ -155,7 +168,7 @@ var Estimate = (function () {
 
   return {
     COLS: COLS, number: number, nextNumber: nextNumber, summary: summary, validate: validate,
-    toRow: toRow, mergeRow: mergeRow, splitText: splitText,
+    toRow: toRow, mergeRow: mergeRow, cellText: cellText, splitText: splitText,
     syncState: syncState, needsSync: needsSync, prune: prune, nextToSync: nextToSync, uid: uid
   };
 })();

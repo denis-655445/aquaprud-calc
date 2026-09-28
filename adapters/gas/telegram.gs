@@ -14,6 +14,21 @@ function sendMessage_(token, chatId, text, markup) {
 }
 
 /*
+ * v0.9.1: перевірка MINIAPP_URL → '' (усе добре) або текст проблеми.
+ * Типова помилка: адреса сторінки репозиторію (github.com/…/tree/…) замість сайту GitHub Pages (….github.io/…):
+ * тоді кнопка відкриває GitHub, а не калькулятор.
+ */
+function miniAppUrlProblem_(url) {
+  url = String(url || '').trim();
+  if (!url) return 'MINIAPP_URL не задано — кнопки «Відкрити в калькуляторі» не буде';
+  if (!/^https:\/\//.test(url)) return 'MINIAPP_URL має починатися з https://';
+  if (/^https:\/\/(www\.)?github\.com\//i.test(url)) {
+    return 'MINIAPP_URL — це адреса репозиторію GitHub, а не застосунку. Потрібно: https://<логін>.github.io/aquaprud-calc/miniapp/';
+  }
+  return '';
+}
+
+/*
  * Кошторис — усім з ALLOWED_USER_IDS (власник + техпрацівник). Користувач має хоч раз натиснути /start у боті,
  * інакше Telegram не дозволить боту написати першим. → скільки чатів отримали
  */
@@ -22,6 +37,8 @@ function notifyEstimate_(p, saved, user) {
   var token = props.getProperty('BOT_TOKEN');
   var ids = Auth.idList(props.getProperty('ALLOWED_USER_IDS'));
   var appUrl = props.getProperty('MINIAPP_URL');
+  var urlProblem = miniAppUrlProblem_(appUrl);
+  if (urlProblem) { console.error(urlProblem); appUrl = ''; }   // хибна адреса → без кнопки, а не кнопка на GitHub
   var who = user && (user.first_name || user.username) ? ' · ' + (user.first_name || user.username) : '';
   var head = (saved.created ? '🆕 № ' : '✏️ Оновлено № ') + saved.number + who;
   var text = head + '\n\n' + p.text + (p.summary.comment ? '\n\nДля себе: ' + p.summary.comment : '');

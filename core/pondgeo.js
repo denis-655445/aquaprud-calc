@@ -536,9 +536,10 @@ var PondGeo = (function () {
       var eps = 2e-3 * size, wallTol = 1e-6 + 2e-3 * size;
       var z = function (q) { return groundAt(scene, q); };
       var chains = [{ ring: pit.outline, outline: true }];
-      pit.levels.forEach(function (lv) { [lv.poly].concat(lv.holes || []).forEach(function (r) { chains.push({ ring: r, outline: false }); }); });
+      pit.levels.forEach(function (lv) { [lv.poly].concat(lv.holes || []).forEach(function (r) { chains.push({ ring: r, outline: false, bio: !!lv.bio }); }); });
       var segs = [];
-      chains.forEach(function (c) { c.ring.forEach(function (a, i) { segs.push([a, c.ring[(i + 1) % c.ring.length]]); }); });
+      // ci — номер ланцюга: потрібен, щоб знайти перетини країв РІЗНИХ сходинок (v0.9.1)
+      chains.forEach(function (c, ci) { c.ring.forEach(function (a, i) { segs.push([a, c.ring[(i + 1) % c.ring.length], ci]); }); });
       var onWall = function (q) { return distToRing(q, pit.outline) < wallTol; };
       function probe(q, n) { return [z([q[0] + n[0] * eps, q[1] + n[1] * eps]), z([q[0] - n[0] * eps, q[1] - n[1] * eps])]; }
       function normal(a, b) { var l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; return [-(b[1] - a[1]) / l, (b[0] - a[0]) / l]; }
@@ -603,9 +604,57 @@ var PondGeo = (function () {
                            fixed: junction || cosTurn < Math.cos(SHARP_TURN_DEG * Math.PI / 180), n1: n1, n2: n2 });
         }
       });
+
+      crossingVerts(pit, chains, segs, z, eps, onWall, geo);
     });
     scene._lv = geo;
     return geo;
+  }
+
+  /*
+   * v0.9.1: вертикальні ребра в точках, де край однієї сходинки перетинає край іншої
+   * (напр., кінці дуги платформи на прямому краї полиці). Вершинами кілець ці точки не є,
+   * тому основний цикл їх не бачив. Метод: обходимо точку по колу (72 проби, крок 5°) і для кожного
+   * проміжку висот дивимось, яку частину кола займає «ґрунт» (поверхня вища за цей рівень):
+   * пів кола (±8°) — рівна стінка без ребра; інша частка або кілька шматків — кут стінки → ребро.
+   */
+  function crossingVerts(pit, chains, segs, z, eps, onWall, geo) {
+    var N = 72, pts = [];
+    segs.forEach(function (s1) {
+      var c1 = chains[s1[2]];
+      if (c1.outline || c1.bio) return;                         // стінка й біоплато — окремі правила (D56)
+      segs.forEach(function (s2) {
+        var c2 = chains[s2[2]];
+        if (s2[2] === s1[2] || c2.outline || c2.bio) return;    // лише краї різних сходинок
+        var t = segCross(s1[0], s1[1], s2[0], s2[1]);
+        if (t === null) return;
+        var q = [s1[0][0] + (s1[1][0] - s1[0][0]) * t, s1[0][1] + (s1[1][1] - s1[0][1]) * t];
+        if (onWall(q)) return;                                   // стик зі стінкою рахує основний цикл
+        if (pts.some(function (o) { return Math.hypot(o[0] - q[0], o[1] - q[1]) < eps; })) return;
+        pts.push(q);
+      });
+    });
+    pts.forEach(function (q) {
+      // Висоти по колу; зсув на пів кроку — щоб проба не лягла точно на пряму лінію краю
+      var hs = [];
+      for (var k = 0; k < N; k++) {
+        var a = (k + 0.5) * 2 * Math.PI / N;
+        hs.push(z([q[0] + Math.cos(a) * eps, q[1] + Math.sin(a) * eps]));
+      }
+      var lv = hs.slice().sort(function (x, y) { return y - x; }).filter(function (h, i, arr) { return !i || arr[i - 1] - h > 1e-9; });
+      var seg = null;
+      // Для кожного проміжку між сусідніми висотами: чи є тут кут стінки
+      for (var i = 0; i + 1 < lv.length; i++) {
+        var mid = (lv[i] + lv[i + 1]) / 2, solid = hs.map(function (h) { return h > mid; });
+        var turns = 0, count = 0;
+        solid.forEach(function (sd, k) { if (sd) count++; if (sd !== solid[(k + 1) % N]) turns++; });
+        var corner = turns > 2 || (turns === 2 && Math.abs(count * 360 / N - 180) > 8);
+        if (corner) {
+          if (seg && Math.abs(seg.zb - lv[i]) < 1e-9) seg.zb = lv[i + 1];   // продовжуємо ребро вниз
+          else { seg = { pit: pit.id, p: q, zt: lv[i], zb: lv[i + 1], fixed: true, n1: [1, 0], n2: [1, 0] }; geo.verts.push(seg); }
+        } else seg = null;
+      }
+    });
   }
 
   // Ребра котлованів у 3D: край (земля), контур дна, вертикальні ребра

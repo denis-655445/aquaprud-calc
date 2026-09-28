@@ -22,17 +22,19 @@ var GasTests = (function () {
     // Вкладка з записом (CRM): діапазони над масивом рядків, як getRange(рядок, колонка, рядків, колонок) у Google
     function sheetObj(n) {
       var data = sheets[n];
+      // Як Google: апостроф на початку тексту = «текст», у клітинці його немає; без апострофа «+…» / «=…» — формула
+      var cellOf = function (v) { return typeof v !== 'string' ? v : v.charAt(0) === "'" ? v.slice(1) : /^[=+]/.test(v) ? '#ERROR!' : v; };
       var width = function () { return data.reduce(function (w, r) { return Math.max(w, r.length); }, 0); };
       var range = function (r, c, nr, nc) {
         nr = nr || 1; nc = nc || 1;
         var get = function () { var out = []; for (var i = 0; i < nr; i++) { var row = []; for (var j = 0; j < nc; j++) row.push(((data[r - 1 + i] || [])[c - 1 + j]) === undefined ? '' : data[r - 1 + i][c - 1 + j]); out.push(row); } return out; };
-        var set = function (vals) { vals.forEach(function (row, i) { data[r - 1 + i] = data[r - 1 + i] || []; row.forEach(function (v, j) { data[r - 1 + i][c - 1 + j] = v; }); }); };
+        var set = function (vals) { vals.forEach(function (row, i) { data[r - 1 + i] = data[r - 1 + i] || []; row.forEach(function (v, j) { data[r - 1 + i][c - 1 + j] = cellOf(v); }); }); };
         return { getValues: function () { reads.n++; return get(); }, setValues: set, getValue: function () { return get()[0][0]; },
                  setValue: function (v) { set([[v]]); } };
       };
       return { getDataRange: function () { return { getValues: function () { reads.n++; return data; } }; },
                getLastColumn: width, getLastRow: function () { return data.length; }, getRange: range,
-               appendRow: function (row) { data.push(row.slice()); } };
+               appendRow: function (row) { data.push(row.map(cellOf)); } };
     }
     var sb = {
       console: { error: function () {}, log: function () {} }, JSON: JSON, Date: Date, Math: Math,
@@ -141,8 +143,23 @@ var GasTests = (function () {
         var r3 = post(sb, { action: 'saveEstimate', initData: initData(), payload: payload({ uid: 'k2abcdefgh' }) });
         return r2.ok && r2.number === 'AP-2026-001' && r2.created === false && crm.length === 3 &&
           crm[1][h.indexOf('разом')] === 50000 && crm[1][h.indexOf('статус')] === 'погоджено' &&
-          crm[1][h.indexOf('телефон')] === '+380 50 111 22 33' && r3.number === 'AP-2026-002' &&
+          crm[1][h.indexOf('телефон')] === '380 50 111 22 33' && r3.number === 'AP-2026-002' &&
           /^✏️ Оновлено № AP-2026-001/.test(sb.__sent[1].text);
+      }],
+      ['GAS v0.9.1: MINIAPP_URL = адреса репозиторію github.com → повідомлення без кнопки; Pages — з кнопкою', function () {
+        var bad = Object.assign({}, props, { MINIAPP_URL: 'https://github.com/denis-655445/aquaprud-calc/tree/main/miniapp' });
+        var sb = makeSandbox(sheet, bad);
+        post(sb, { action: 'saveEstimate', initData: initData(), payload: payload() });
+        var last = sb.__sent[sb.__sent.length - 1];
+        return !!last && !last.reply_markup && /github\.io/.test(sb.miniAppUrlProblem_(bad.MINIAPP_URL)) &&
+          sb.miniAppUrlProblem_('https://x.github.io/aquaprud-calc/miniapp/') === '';
+      }],
+      ['GAS v0.9.1: телефон «+380 …» у новому рядку й після оновлення — текст, а не #ERROR!', function () {
+        var sb = makeSandbox(sheet, props), ph = '+380 55 555 55 55';
+        post(sb, { action: 'saveEstimate', initData: initData(), payload: payload({ summary: { client: 'Вася', phone: ph, total: 1 } }) });
+        var crm = sb.__sheets['Кошториси'], col = crm[0].indexOf('телефон'), first = crm[1][col];
+        post(sb, { action: 'saveEstimate', initData: initData(), payload: payload({ summary: { client: 'Вася', phone: '', total: 2 } }) });
+        return first === '380 55 555 55 55' && crm[1][col] === '380 55 555 55 55' && crm.length === 2;
       }],
       ['GAS A4: без імені → validation і рядка немає; без доступу → auth; чат недоступний — запис усе одно є', function () {
         var sb = makeSandbox(sheet, Object.assign({}, props, { ALLOWED_USER_IDS: '111222333,999' }));

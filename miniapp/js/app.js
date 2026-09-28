@@ -1836,6 +1836,49 @@
   }
 
   // ---------- Запуск ----------
+  // Кнопка «вгору / в кінець» (v0.9.1, п. 1).
+  // Показується лише при швидкій прокрутці (> SPEED px/мс) на довгій сторінці.
+  // ↓ — зʼявляється при прокрутці вниз, ↑ — при прокрутці вгору.
+  // Без кліку: зникає через HIDE мс. По кліку: плавно прокручує й зникає одразу.
+  function bindScrollFab() {
+    var btn = $('scrollFab');
+    var SPEED = 1.5;    // px/мс — поріг «швидка» прокрутка
+    var HIDE  = 2000;   // мс — кнопка висить і зникає
+    var dir = 1, timer = null;
+    var lastY = window.pageYOffset, lastT = Date.now();
+
+    // Показати стрілку; скидаємо таймер авторозгортки
+    function show(d) {
+      dir = d;
+      btn.textContent = d > 0 ? '↓' : '↑';
+      btn.setAttribute('aria-label', d > 0 ? 'В кінець' : 'На початок');
+      btn.classList.add('is-visible');
+      clearTimeout(timer);
+      timer = setTimeout(hide, HIDE);
+    }
+
+    function hide() {
+      btn.classList.remove('is-visible');
+    }
+
+    window.addEventListener('scroll', function () {
+      var y = window.pageYOffset, t = Date.now(), dt = t - lastT;
+      // Показуємо лише коли є що прокручувати (сторінка довша за екран хоча б на 80 px)
+      var scrollable = document.documentElement.scrollHeight - window.innerHeight > 80;
+      if (dt > 0 && scrollable) {
+        var speed = Math.abs(y - lastY) / dt;
+        if (speed > SPEED) show(y > lastY ? 1 : -1);
+      }
+      lastY = y; lastT = t;
+    }, { passive: true });
+
+    btn.addEventListener('click', function () {
+      var target = dir > 0 ? document.documentElement.scrollHeight : 0;
+      window.scrollTo({ top: target, behavior: 'smooth' });
+      hide();
+    });
+  }
+
   function init() {
     bindDoubleTapGuard();
     bindRotation();
@@ -1862,6 +1905,7 @@
       renderCrm();
       openFromLink();                                    // кнопка «Відкрити в калькуляторі» з чату
       scheduleSync(1000);                                // черга, що лишилася з минулого разу
+      bindScrollFab();                                   // v0.9.1: кнопка «вгору / в кінець»
     }).catch(function (err) {
       $('loadNote').hidden = true;
       // Доступ (auth) — інтернет тут ні до чого; мережа / сервер — радимо перевірити зв'язок

@@ -12,7 +12,7 @@ var StairsTests = (function () {
   function codes(list) { return list.map(function (e) { return e.code; }); }
 
   // Налаштування для тестів — як у stairs_math §15
-  var SET = { shelf_width_min_m: 0.3, deep_share_min_fish: 0.5, deep_share_min_nofish: 0.33, depth_min_fish_m: 1.2,
+  var SET = { shelf_width_min_m: 0.3, depth_min_fish_m: 1.2,
               depth_min_nofish_m: 0.7, arc_tolerance_m: 0.01, raster_cell_m: 0.01, platform_arc_k: 0.1, depth_profile_k: 1 };
 
   function cases(St, Calc) {
@@ -104,12 +104,12 @@ var StairsTests = (function () {
           { type: 'shelf', edge: 'straight', points: [1, 2, 3], wc: 0.3, depth_cm: 45 }] }, SET);
         return r.layers[1].visible === 0 && has(codes(r.errors), 'E8') && r.layers[0].valid;
       }],
-      ['S9 Замала глибока зона і мілкий ставок — W2, W4; вузька полиця — W1', function () {
+      ['S9 Мілкий ставок — W4; вузька полиця — W1; W2 прибрано (v0.9.1)', function () {
         var r = St.evaluate({ shape: 'rect', L: 6, W: 3, D: 0.6, fish: false, steps: [
           { type: 'platform', edge: 'straight', points: [1, 2, 3, 5, 4], depth_cm: 20 }, // хорда #5 → #3: 13,5 м²
           { type: 'shelf', edge: 'straight', points: [3, 8, 6], wc: 0.2, depth_cm: 40 }] }, SET);
         var w = codes(r.warnings);
-        return has(w, 'W2') && has(w, 'W4') && has(w, 'W1');
+        return !has(w, 'W2') && has(w, 'W4') && has(w, 'W1');
       }],
       ['S10 W > L: ставок 3×6 рахується як 6×3 (схема повернута), точки плану в межах 3×6', function () {
         var a = St.evaluate({ shape: 'rect', L: 3, W: 6, D: 1.5, steps: E1.steps }, SET);

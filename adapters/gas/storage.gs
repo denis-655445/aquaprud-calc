@@ -56,6 +56,9 @@ function checkFromEditor() {
   console.log('Позицій: ' + cat.items.length + ', налаштувань: ' + Object.keys(cat.settings).length + ', версія ' + cat.version +
     ', тестові ціни: ' + (cat.is_test ? 'так' : 'ні') + '. Попереджень: ' + cat.warnings.length);
   cat.warnings.forEach(function (w) { console.log('• ' + w); });
+  // v0.9.1: адреса застосунку для кнопки в чаті (етап A4)
+  var urlProblem = miniAppUrlProblem_(PropertiesService.getScriptProperties().getProperty('MINIAPP_URL'));
+  console.log(urlProblem ? '⚠️ ' + urlProblem : 'MINIAPP_URL: OK');
 }
 
 // Меню в таблиці
@@ -78,5 +81,7 @@ function menuCheck() {
   var text = 'Позицій: ' + cat.items.length + '. Налаштувань: ' + Object.keys(cat.settings).length +
     '. Версія: ' + cat.version + (cat.is_test ? '. Є тестові ціни («ТЕСТ» у назвах).' : '.') +
     (cat.warnings.length ? '\n\nПопередження:\n• ' + cat.warnings.join('\n• ') : '\n\nПомилок немає.');
+  var urlProblem = miniAppUrlProblem_(PropertiesService.getScriptProperties().getProperty('MINIAPP_URL'));
+  if (urlProblem) text += '\n\n⚠️ ' + urlProblem;                    // v0.9.1: кнопка «Відкрити в калькуляторі»
   SpreadsheetApp.getUi().alert(text);
 }

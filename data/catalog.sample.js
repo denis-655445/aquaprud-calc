@@ -36,8 +36,6 @@ var SAMPLE_CATALOG = {
     shelf_width_min_m: 0.3,       // W1
     steps_max: 4,                 // до 5 рівнів з дном (D38, v0.6.0)
     platform_arc_k: 0.1,          // наше припущення (майстер)
-    deep_share_min_fish: 0.5,     // W2
-    deep_share_min_nofish: 0.33,
     depth_min_fish_m: 1.2,        // W4
     depth_min_nofish_m: 0.7,
     arc_tolerance_m: 0.01,        // E4
